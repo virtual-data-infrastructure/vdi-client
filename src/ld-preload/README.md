@@ -57,8 +57,11 @@ created PNG-file 'outputs/no.json_map.png'
 | Column | Description |
 |--------|-------------|
 | 1 | Timestamp (epoch::human-readable-in-UTC) |
-| 2 | Name of the intercepted function |
-| 3-5 | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
+| 2 | Process ID |
+| 3 | Parent process ID |
+| 4 | Process group ID |
+| 5 | Name of the intercepted function |
+| 6+ | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
 
 ### Configuring log file path and name
 The log file always contains the process ID as suffix, is by default written into the directory `${HOME}/.vdi/logs/` and has the prefix/name `vdi_log.`.
