@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 bool _global_show_log_path = true;
@@ -25,6 +26,7 @@ const char* STRING_CONST_ENVVAR_VDI_LOG_DIR = "VDI_LOG_DIR";
 const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_DIR = "${HOME}/.vdi/logs";
 const char* STRING_CONST_ENVVAR_VDI_LOG_FILE_PREFIX = "VDI_LOG_FILE_PREFIX";
 const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_FILE_PREFIX = "vdi_log.";
+const char* STRING_CONST_UTC_ERROR = "UTC_ERROR";
 
 int (*actual_open)() = NULL;
 int (*actual_write)() = NULL;
@@ -204,8 +206,33 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         return EXIT_FAILURE;
     }
 
+    // obtain epoch and its representation in UTC where whitespace is replaced with dashes '-'
+    time_t current_time = time(NULL);
+    char *utc_string;
+    if (current_time != (time_t)(-1)) {
+        // convert the epoch time to UTC
+        struct tm *utc_time = gmtime(&current_time);
+        if (utc_time == NULL) {
+            utc_string = strdup(STRING_CONST_UTC_ERROR);
+        } else {
+            // Print the UTC time in a human-readable format
+            char utc_buffer[80];
+            if (strftime(utc_buffer, sizeof(utc_buffer), "%Y-%m-%d+%H:%M:%S+UTC", utc_time) == 0) {
+                utc_string = strdup(STRING_CONST_UTC_ERROR);
+            } else {
+                utc_string = strdup(utc_buffer);
+            }
+        }
+    } else {
+        utc_string = strdup(STRING_CONST_UTC_ERROR);
+    }
+    char time_string[MAX_STRING_LEN];
+    snprintf(time_string, MAX_STRING_LEN-1, "%ld::%s", current_time, utc_string);
+
     // create log_string
     int log_string_len = 0;
+    log_string_len += strlen(time_string);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(func_name);
     if (func_num_args > 0) {
         log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
@@ -221,6 +248,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
 
     char *log_string = (char *)malloc(log_string_len * sizeof(char));
     log_string[0] = '\0';
+    strcat(log_string, time_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, func_name);
     if (func_num_args > 0) {
         strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
