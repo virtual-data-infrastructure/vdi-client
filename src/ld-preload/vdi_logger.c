@@ -237,6 +237,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     char ids_string[MAX_STRING_LEN];
     snprintf(ids_string, MAX_STRING_LEN-1, "%d%s%d%s%d", pid, STRING_CONST_LOG_COLUMN_SEPARATOR, ppid, STRING_CONST_LOG_COLUMN_SEPARATOR, pgid);
 
+    // obtain program name and arguments
+
     // create log_string
     int log_string_len = 0;
     log_string_len += strlen(time_string);
