@@ -53,10 +53,12 @@ The Python script `map_plot.py` also prints a message about the image file it ha
 created PNG-file 'outputs/no.json_map.png'
 ```
 ### Format of the log file line
-|---------|------------------|
-|Column|Description|
-|1|Name of the intercepted function|
-|2-4|Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc|
+
+| Column | Description |
+|--------|-------------|
+| 1 | Timestamp (epoch::human-readable-in-UTC) |
+| 2 | Name of the intercepted function |
+| 3-5 | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
 
 ### Configuring log file path and name
 The log file always contains the process ID as suffix, is by default written into the directory `${HOME}/.vdi/logs/` and has the prefix/name `vdi_log.`.
