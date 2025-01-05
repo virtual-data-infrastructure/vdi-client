@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pwd.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -32,6 +33,8 @@ const char* STRING_CONST_UTC_ERROR = "UTC_ERROR";
 const char* STRING_CONST_READLINK_ERROR = "READLINK_ERROR";
 const char* STRING_CONST_PROGRAM_ARGS_ERROR = "PROGRAM_ARGS_ERROR";
 const char* STRING_CONST_GETCWD_ERROR = "GETCWD_ERROR";
+const char* STRING_CONST_USERNAME_ERROR = "USERNAME_ERROR";
+const char* STRING_CONST_USERHOME_ERROR = "USERHOME_ERROR";
 const char* STRING_CONST_PROGRAM_ARG_SEPARATOR = "%%";
 const char* STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE = "##";
 
@@ -237,6 +240,22 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     char time_string[MAX_STRING_LEN];
     snprintf(time_string, MAX_STRING_LEN-1, "%ld::%s", current_time, utc_string);
 
+    // obtain username and user $HOME
+    char *username = NULL;
+    char *userhome = NULL;
+
+    uid_t uid = getuid();
+
+    // get the password record for the current user
+    struct passwd *pw = getpwuid(uid);
+    if (pw == NULL) {
+        username = strdup(STRING_CONST_USERNAME_ERROR);
+        userhome = strdup(STRING_CONST_USERHOME_ERROR);
+    } else {
+        username = pw->pw_name;
+        userhome = pw->pw_dir;
+    }
+
     // obtain pid, ppid and pgid (process ID, parent process ID and process group ID)
     pid_t pid = getpid();
     pid_t ppid = getppid();
@@ -312,6 +331,10 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     int log_string_len = 0;
     log_string_len += strlen(time_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(username);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(userhome);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(ids_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(program_name);
@@ -336,6 +359,10 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     char *log_string = (char *)malloc(log_string_len * sizeof(char));
     log_string[0] = '\0';
     strcat(log_string, time_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, username);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, userhome);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, ids_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
