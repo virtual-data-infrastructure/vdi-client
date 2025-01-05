@@ -2,6 +2,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -14,12 +15,13 @@
 
 bool _global_show_log_path = true;
 
-const int MAX_BUFFER_SIZE = 1024;
-const int MAX_PATH_LEN = 1024;
+const int MAX_BUFFER_SIZE = 4096;
+const int MAX_PATH_LEN = PATH_MAX;
 const int MAX_STRING_LEN = 1024;
 
 const char* STRING_CONST_OPEN_FUNCNAME = "open";
 const char* STRING_CONST_WRITE_FUNCNAME = "write";
+const char* STRING_CONST_FOPEN_FUNCNAME = "fopen";
 const char* STRING_CONST_LOG_COLUMN_SEPARATOR = " ";
 const char* STRING_CONST_LOG_NEW_LINE = "\n";
 const char* STRING_CONST_ENVVAR_VDI_LOG_DIR = "VDI_LOG_DIR";
@@ -27,9 +29,14 @@ const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_DIR = "${HOME}/.vdi/logs";
 const char* STRING_CONST_ENVVAR_VDI_LOG_FILE_PREFIX = "VDI_LOG_FILE_PREFIX";
 const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_FILE_PREFIX = "vdi_log.";
 const char* STRING_CONST_UTC_ERROR = "UTC_ERROR";
+const char* STRING_CONST_READLINK_ERROR = "READLINK_ERROR";
+const char* STRING_CONST_PROGRAM_ARGS_ERROR = "PROGRAM_ARGS_ERROR";
+const char* STRING_CONST_PROGRAM_ARG_SEPARATOR = "%%";
+const char* STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE = "##";
 
 int (*actual_open)() = NULL;
 int (*actual_write)() = NULL;
+FILE* (*actual_fopen)() = NULL;
 
 // helper functions
 char** create_array_of_strings(int num_strings, int string_len) {
@@ -237,11 +244,69 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     char ids_string[MAX_STRING_LEN];
     snprintf(ids_string, MAX_STRING_LEN-1, "%d%s%d%s%d", pid, STRING_CONST_LOG_COLUMN_SEPARATOR, ppid, STRING_CONST_LOG_COLUMN_SEPARATOR, pgid);
 
+    // obtain program name and arguments
+    char exe_path[MAX_PATH_LEN];
+    snprintf(exe_path, sizeof(exe_path), "/proc/%d/exe", pid);
+
+    char readlink_exe_path[MAX_PATH_LEN];
+    char *program_name;
+    ssize_t len = readlink(exe_path, readlink_exe_path, sizeof(readlink_exe_path) - 1);
+    if (len == -1) {
+        program_name = strdup(STRING_CONST_READLINK_ERROR);
+    } else {
+        // null-terminate the string read by readlink
+        readlink_exe_path[len] = '\0';
+        program_name = strdup(readlink_exe_path);
+    }
+
+    char *program_args_string = NULL;
+    char cmdline_path[MAX_PATH_LEN];
+    snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%d/cmdline", pid);
+
+    if (actual_fopen == NULL) {
+        actual_fopen = dlsym(RTLD_NEXT, STRING_CONST_FOPEN_FUNCNAME);
+    }
+
+    FILE *file = actual_fopen(cmdline_path, "r");
+    if (file == NULL) {
+        program_args_string = strdup(STRING_CONST_PROGRAM_ARGS_ERROR);
+    } else {
+        // read file content
+        char buffer[MAX_BUFFER_SIZE];
+        size_t length = fread(buffer, 1, sizeof(buffer), file);
+        fclose(file);
+        if (length == 0) {
+            program_args_string = strdup(STRING_CONST_PROGRAM_ARGS_ERROR);
+        } else {
+            program_args_string = (char *)malloc(MAX_BUFFER_SIZE * sizeof(char));
+            program_args_string[0] = '\0';
+            int pas_len = 0;
+
+            for (size_t i = 0; i < length; ++i) {
+                if (buffer[i] == '\0' && i+2 < length) { // only add arg separator if there are more args, +2 to acknowledge last '\0'
+                    strcat(program_args_string, STRING_CONST_PROGRAM_ARG_SEPARATOR);
+                    pas_len += strlen(STRING_CONST_PROGRAM_ARG_SEPARATOR);
+                } else if (buffer[i] == ' ' || buffer[i] == '\t') {
+                    strcat(program_args_string, STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE);
+                    pas_len += strlen(STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE);
+                } else {
+                    program_args_string[pas_len++] = buffer[i];
+                    program_args_string[pas_len] = '\0';
+                }
+            }
+        }
+    }
+
+
     // create log_string
     int log_string_len = 0;
     log_string_len += strlen(time_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(ids_string);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(program_name);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(program_args_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(func_name);
     if (func_num_args > 0) {
@@ -261,6 +326,10 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     strcat(log_string, time_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, ids_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, program_name);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, program_args_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, func_name);
     if (func_num_args > 0) {
