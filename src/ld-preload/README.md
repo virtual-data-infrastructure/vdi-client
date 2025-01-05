@@ -60,8 +60,10 @@ created PNG-file 'outputs/no.json_map.png'
 | 2 | Process ID |
 | 3 | Parent process ID |
 | 4 | Process group ID |
-| 5 | Name of the intercepted function |
-| 6+ | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
+| 5 | Full path to the program being run |
+| 6 | All command line arguments to program (including program name as used on command line). Arguments are separated by `%%`. Whitespaces ('` `' and '`\t`') in arguments are replaced by `##`. |
+| 7 | Name of the intercepted function |
+| 8+ | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
 
 ### Configuring log file path and name
 The log file always contains the process ID as suffix, is by default written into the directory `${HOME}/.vdi/logs/` and has the prefix/name `vdi_log.`.
