@@ -31,6 +31,7 @@ const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_FILE_PREFIX = "vdi_log.";
 const char* STRING_CONST_UTC_ERROR = "UTC_ERROR";
 const char* STRING_CONST_READLINK_ERROR = "READLINK_ERROR";
 const char* STRING_CONST_PROGRAM_ARGS_ERROR = "PROGRAM_ARGS_ERROR";
+const char* STRING_CONST_GETCWD_ERROR = "GETCWD_ERROR";
 const char* STRING_CONST_PROGRAM_ARG_SEPARATOR = "%%";
 const char* STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE = "##";
 
@@ -297,6 +298,16 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         }
     }
 
+    // obtain current working directory
+    char cwd[MAX_PATH_LEN];
+    char *cwd_string = NULL;
+
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        cwd_string = cwd;
+    } else {
+        cwd_string = strdup(STRING_CONST_GETCWD_ERROR);
+    }
+
     // create log_string
     int log_string_len = 0;
     log_string_len += strlen(time_string);
@@ -306,6 +317,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     log_string_len += strlen(program_name);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(program_args_string);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(cwd_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(func_name);
     if (func_num_args > 0) {
@@ -329,6 +342,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     strcat(log_string, program_name);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, program_args_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, cwd_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, func_name);
     if (func_num_args > 0) {
