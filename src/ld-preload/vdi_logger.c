@@ -1,8 +1,11 @@
+#include <arpa/inet.h>
 #include <ctype.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
 #include <limits.h>
+#include <netdb.h>
 #include <pwd.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -10,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -19,6 +23,8 @@ bool _global_show_log_path = true;
 const int MAX_BUFFER_SIZE = 4096;
 const int MAX_PATH_LEN = PATH_MAX;
 const int MAX_STRING_LEN = 1024;
+const int MAX_HOSTNAME_LEN = 256;
+
 
 const char* STRING_CONST_OPEN_FUNCNAME = "open";
 const char* STRING_CONST_WRITE_FUNCNAME = "write";
@@ -35,9 +41,16 @@ const char* STRING_CONST_PROGRAM_ARGS_ERROR = "PROGRAM_ARGS_ERROR";
 const char* STRING_CONST_GETCWD_ERROR = "GETCWD_ERROR";
 const char* STRING_CONST_USERNAME_ERROR = "USERNAME_ERROR";
 const char* STRING_CONST_USERHOME_ERROR = "USERHOME_ERROR";
+const char* STRING_CONST_HOSTNAME_ERROR = "HOSTNAME_ERROR";
+const char* STRING_CONST_FQHN_ERROR = "FQHN_ERROR";
+const char* STRING_CONST_FQHN_NOT_RESOLVED_ERROR = "FQHN_NOT_RESOLVED_ERROR";
+const char* STRING_CONST_IP_ADDRESS_ERROR = "IP_ADDRESS_ERROR";
 const char* STRING_CONST_PROGRAM_ARG_SEPARATOR = "%%";
 const char* STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE = "##";
+const char* STRING_CONST_FQHN_AND_IP_SEPARATOR = "//";
+const char* STRING_CONST_IPVER_SEPARATOR = "%%";
 
+// functions we use in here but that are also wrapped
 int (*actual_open)() = NULL;
 int (*actual_write)() = NULL;
 FILE* (*actual_fopen)() = NULL;
@@ -240,6 +253,146 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     char time_string[MAX_STRING_LEN];
     snprintf(time_string, MAX_STRING_LEN-1, "%ld::%s", current_time, utc_string);
 
+    // obtain hostname and IP address(es) {IPv4 + IPv6}
+    char hostname[MAX_HOSTNAME_LEN];
+    hostname[0] = '\0';
+    char *hostname_string = NULL;
+    char *fqhn_string = NULL;
+    char *ip_string = NULL;
+    char ip_string_tmp[MAX_STRING_LEN];
+    ip_string_tmp[0] = '\0';
+    char *fqhn_and_ip_string = NULL;
+
+    // get the short and fully qualified domain name
+    if (gethostname(hostname, sizeof(hostname)) != 0) {
+        hostname_string = strdup(STRING_CONST_HOSTNAME_ERROR);
+    } else {
+        hostname_string = strdup(hostname);
+        // get the fully qualified domain name
+        struct addrinfo hints, *info, *p;
+        int addrinfo_ret, fqhn_ret;
+
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+
+        addrinfo_ret = getaddrinfo(hostname, NULL, &hints, &info);
+        if (addrinfo_ret != 0) {
+            fqhn_string = strdup(STRING_CONST_FQHN_ERROR);
+        } else {
+            for (p = info; p != NULL; p = p->ai_next) {
+                char fqhn_tmp[NI_MAXHOST];
+                fqhn_ret = getnameinfo(p->ai_addr, p->ai_addrlen, fqhn_tmp, sizeof(fqhn_tmp),
+                                  NULL, 0, NI_NAMEREQD);
+                if (fqhn_ret == 0) {
+                    fqhn_string = strdup(fqhn_tmp);
+                    break;
+                }
+            }
+            freeaddrinfo(info);
+
+            if (p == NULL) {
+                fqhn_string = strdup(STRING_CONST_FQHN_NOT_RESOLVED_ERROR);
+            }
+        }
+    }
+    // obtain IP addresses
+    if (strcmp(hostname_string, hostname) == 0) {
+        // we know that we got a hostname
+        struct addrinfo hints, *res, *p;
+        struct ifaddrs *ifaddr, *ifa;
+        char host[NI_MAXHOST];
+
+        int status;
+        char ipstr[INET6_ADDRSTRLEN];
+
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_UNSPEC; // AF_INET or AF_INET6 to force IPv4 or IPv6
+        hints.ai_socktype = SOCK_STREAM;
+
+        if (getifaddrs(&ifaddr) != -1) { // try preferred approach
+            char buffer[MAX_STRING_LEN];
+            buffer[0] = '\0';
+
+            for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+                if (ifa->ifa_addr == NULL)
+                    continue;
+
+                int family = ifa->ifa_addr->sa_family;
+
+                if (family == AF_INET || family == AF_INET6) {
+                    int s = getnameinfo(ifa->ifa_addr,
+                                        (family == AF_INET) ? sizeof(struct sockaddr_in) :
+                                                              sizeof(struct sockaddr_in6),
+                                        host, NI_MAXHOST,
+                                        NULL, 0, NI_NUMERICHOST);
+                    if (s != 0) {
+                        printf("vdi_logger.so: getnameinfo() failed: %s\n", gai_strerror(s));
+                        continue;
+                    }
+
+                    snprintf(buffer, MAX_STRING_LEN-1, "%s%s%s%s%s",
+                             (family == AF_INET ? "IPv4" : "IPv6"), STRING_CONST_IPVER_SEPARATOR,
+                             ifa->ifa_name, STRING_CONST_IPVER_SEPARATOR, host);
+                    if (strlen(ip_string_tmp) != 0) {
+                        strcat(ip_string_tmp, STRING_CONST_FQHN_AND_IP_SEPARATOR);
+                    }
+                    strcat(ip_string_tmp, buffer);
+                }
+            }
+            ip_string = strdup(ip_string_tmp);
+
+            freeifaddrs(ifaddr);
+        } else if ((status = getaddrinfo(hostname, NULL, &hints, &res)) == 0) { // try alternative approach
+            for(p = res; p != NULL; p = p->ai_next) {
+                char buffer[MAX_STRING_LEN];
+                buffer[0] = '\0';
+                void *addr;
+                char *ipver;
+
+                // get the pointer to the address itself,
+                // different fields in IPv4 and IPv6:
+                if (p->ai_family == AF_INET) { // IPv4
+                    struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+                    addr = &(ipv4->sin_addr);
+                    ipver = "IPv4";
+                } else { // IPv6
+                    struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
+                    addr = &(ipv6->sin6_addr);
+                    ipver = "IPv6";
+                }
+
+                // Convert the IP to a string and print it:
+                inet_ntop(p->ai_family, addr, ipstr, sizeof(ipstr));
+                snprintf(buffer, MAX_STRING_LEN-1, "%s%s%s", ipver, STRING_CONST_IPVER_SEPARATOR, ipstr);
+                if (strlen(ip_string_tmp) != 0) {
+                    strcat(ip_string_tmp, STRING_CONST_FQHN_AND_IP_SEPARATOR);
+                }
+                strcat(ip_string_tmp, ipstr);
+            }
+            ip_string = strdup(ip_string_tmp);
+
+            freeaddrinfo(res); // free the linked list
+        } else {
+            ip_string = strdup(STRING_CONST_IP_ADDRESS_ERROR);
+        }
+    }
+
+
+    int fqhn_and_ip_string_len = 0;
+    fqhn_and_ip_string_len += strlen(hostname_string);
+    fqhn_and_ip_string_len += strlen(STRING_CONST_FQHN_AND_IP_SEPARATOR);
+    fqhn_and_ip_string_len += strlen(fqhn_string);
+    fqhn_and_ip_string_len += strlen(STRING_CONST_FQHN_AND_IP_SEPARATOR);
+    fqhn_and_ip_string_len += strlen(ip_string);
+    fqhn_and_ip_string = (char *)malloc((fqhn_and_ip_string_len + 1) * sizeof(char));
+    fqhn_and_ip_string[0] = '\0';
+    strcat(fqhn_and_ip_string, hostname_string);
+    strcat(fqhn_and_ip_string, STRING_CONST_FQHN_AND_IP_SEPARATOR);
+    strcat(fqhn_and_ip_string, fqhn_string);
+    strcat(fqhn_and_ip_string, STRING_CONST_FQHN_AND_IP_SEPARATOR);
+    strcat(fqhn_and_ip_string, ip_string);
+
     // obtain username and user $HOME
     char *username = NULL;
     char *userhome = NULL;
@@ -331,17 +484,19 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     int log_string_len = 0;
     log_string_len += strlen(time_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(fqhn_and_ip_string);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(username);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(userhome);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(ids_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(cwd_string);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(program_name);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(program_args_string);
-    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
-    log_string_len += strlen(cwd_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(func_name);
     if (func_num_args > 0) {
@@ -360,17 +515,19 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     log_string[0] = '\0';
     strcat(log_string, time_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, fqhn_and_ip_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, username);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, userhome);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, ids_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, cwd_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, program_name);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, program_args_string);
-    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
-    strcat(log_string, cwd_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, func_name);
     if (func_num_args > 0) {
