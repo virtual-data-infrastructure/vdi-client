@@ -57,16 +57,17 @@ created PNG-file 'outputs/no.json_map.png'
 | Column | Description |
 |--------|-------------|
 | 1 | Timestamp (epoch::human-readable-in-UTC) |
-| 2 | User name |
-| 3 | User `$HOME` |
-| 4 | Process ID |
-| 5 | Parent process ID |
-| 6 | Process group ID |
-| 7 | Full path to the program being run |
-| 8 | All command line arguments to program (including program name as used on command line). Arguments are separated by `%%`. Whitespaces ('` `' and '`\t`') in arguments are replaced by `##`. |
-| 9 | Current working directory |
-| 10 | Name of the intercepted function |
-| 11+ | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
+| 2 | Hostname, (possibly) fully qualified hostname, IPv4/v6 addresses with main elements being separated by `//` and IP address details separated by `%%` |
+| 3 | User name |
+| 4 | User `$HOME` |
+| 5 | Process ID |
+| 6 | Parent process ID |
+| 7 | Process group ID |
+| 8 | Current working directory |
+| 9 | Full path to the program being run |
+| 10 | All command line arguments to program (including program name as used on command line). Arguments are separated by `%%`. Whitespaces ('` `' and '`\t`') in arguments are replaced by `##`. |
+| 11 | Name of the intercepted function |
+| 12+ | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
 
 ### Configuring log file path and name
 The log file always contains the process ID as suffix, is by default written into the directory `${HOME}/.vdi/logs/` and has the prefix/name `vdi_log.`.
