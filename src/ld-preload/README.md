@@ -66,8 +66,9 @@ created PNG-file 'outputs/no.json_map.png'
 | 8 | Current working directory |
 | 9 | Full path to the program being run |
 | 10 | All command line arguments to program (including program name as used on command line). Arguments are separated by `%%`. Whitespaces ('` `' and '`\t`') in arguments are replaced by `##`. |
-| 11 | Name of the intercepted function |
-| 12+ | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
+| 11 | Start time of the program given as epoch and UTC time with the format `EPOCH_TIME%%UTC_TIME`. |
+| 12 | Name of the intercepted function |
+| 13+ | Arguments of the intercepted function such as the accessed `path`, the flags to open a file, the mode to open a file, etc |
 
 ### Configuring log file path and name
 The log file always contains the process ID as suffix, is by default written into the directory `${HOME}/.vdi/logs/` and has the prefix/name `vdi_log.`.

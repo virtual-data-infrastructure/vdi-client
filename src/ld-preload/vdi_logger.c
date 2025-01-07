@@ -14,6 +14,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/sysinfo.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -45,10 +46,12 @@ const char* STRING_CONST_HOSTNAME_ERROR = "HOSTNAME_ERROR";
 const char* STRING_CONST_FQHN_ERROR = "FQHN_ERROR";
 const char* STRING_CONST_FQHN_NOT_RESOLVED_ERROR = "FQHN_NOT_RESOLVED_ERROR";
 const char* STRING_CONST_IP_ADDRESS_ERROR = "IP_ADDRESS_ERROR";
+const char* STRING_CONST_PROGRAM_START_TIME_ERROR = "PROGRAM_START_TIME_ERROR";
 const char* STRING_CONST_PROGRAM_ARG_SEPARATOR = "%%";
 const char* STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE = "##";
 const char* STRING_CONST_FQHN_AND_IP_SEPARATOR = "//";
 const char* STRING_CONST_IPVER_SEPARATOR = "%%";
+const char* STRING_CONST_PROGRAM_STARTTIME_SEPARATOR = "%%";
 
 // functions we use in here but that are also wrapped
 int (*actual_open)() = NULL;
@@ -56,6 +59,35 @@ int (*actual_write)() = NULL;
 FILE* (*actual_fopen)() = NULL;
 
 // helper functions
+void convert_ticks_to_epoch_and_utc(long long start_time_ticks, int *epoch_time, char *utc_time, size_t size) {
+    long ticks_per_second = sysconf(_SC_CLK_TCK);
+    if (ticks_per_second <= 0) {
+        strcat(utc_time, STRING_CONST_PROGRAM_START_TIME_ERROR);
+        *epoch_time = -1;
+        return;
+    }
+
+    struct sysinfo info;
+    if (sysinfo(&info) == -1) {
+        strcat(utc_time, STRING_CONST_PROGRAM_START_TIME_ERROR);
+        *epoch_time = -1;
+        return;
+    }
+    // calculate the process start time in seconds since the Epoch
+    time_t start_time_seconds = time(NULL) - info.uptime + (start_time_ticks / ticks_per_second);
+    *epoch_time = start_time_seconds;
+
+    // convert to UTC time
+    struct tm *start_time_tm = gmtime(&start_time_seconds);
+    if (start_time_tm == NULL) {
+        strcat(utc_time, STRING_CONST_PROGRAM_START_TIME_ERROR);
+        return;
+    }
+
+    strftime(utc_time, size, "%Y-%m-%d+%H:%M:%S+UTC", start_time_tm);
+    return;
+}
+
 char** create_array_of_strings(int num_strings, int string_len) {
     char **array = (char **)malloc(num_strings * sizeof(char*));
     for(int i = 0; i < num_strings; i++) {
@@ -204,6 +236,74 @@ char* get_log_path(void) {
 
     snprintf(log_path, MAX_PATH_LEN, "%s/%s%d", env_vdi_log_dir, env_vdi_log_file_prefix, pid);
     return log_path;
+}
+
+long long get_process_start_time(pid_t pid) {
+    char path[MAX_BUFFER_SIZE];
+    char buffer[MAX_BUFFER_SIZE];
+    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+
+    if (actual_fopen == NULL) {
+        actual_fopen = dlsym(RTLD_NEXT, STRING_CONST_FOPEN_FUNCNAME);
+    }
+
+    FILE *file = actual_fopen(path, "r");
+    if (file == NULL) {
+        return -1;
+    } else {
+        // read file content
+        size_t length = fread(buffer, 1, sizeof(buffer), file);
+        fclose(file);
+        if (length == 0) {
+            return -1;
+        } else {
+            // extract the 22nd field from the stat file which is the start time
+            // Note, the 2nd field begins with '(' and ends with ')'
+            buffer[length] = '\0';
+            char *ptr = buffer;
+            int num = 0;
+
+            while (*ptr != '\0') {
+                if (*ptr == '(') {
+                    // special field detected
+                    char *end = strchr(ptr, ')');
+                    if (end == NULL) {
+                        // missing ')'
+                        num = 0;
+                        break;
+                    }
+                    num++; // increase field counter by one
+                    ptr = end + 1; // move past the closing parenthesis
+                } else {
+                    // regular field
+                    num++;
+                    char *end = strchr(ptr, ' ');
+                    if (end == NULL) {
+                        end = ptr + strlen(ptr); // if no space is found, go to end of string
+                    } else {
+                        if (num == 22) {
+                            *end = '\0'; // end column 22 string at found ' '
+                            break;
+                        } else {
+                            ptr = end;
+                        }
+                    }
+                }
+        
+                // skip any trailing spaces
+                while (*ptr == ' ') {
+                    ptr++;
+                }
+            }
+            if (num == 22) {
+                // found column 22
+                return atoll(ptr);
+            } else {
+                // something went wrong
+                return -1;
+            }
+        }
+    }
 }
 
 int log_call(const char *func_name, int func_num_args, char **func_args) {
@@ -470,6 +570,22 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         }
     }
 
+    // get date+time when program was started
+    long long start_time_ticks = get_process_start_time(pid);
+    char *program_start_time_string;
+    if (start_time_ticks == -1) {
+        program_start_time_string = strdup(STRING_CONST_PROGRAM_START_TIME_ERROR);
+    } else {
+	char utc_time[MAX_STRING_LEN];
+	utc_time[0] = '\0';
+	int epoch_time = -1;
+	convert_ticks_to_epoch_and_utc(start_time_ticks, &epoch_time, utc_time, sizeof(utc_time));
+	char starttime_tmp[MAX_STRING_LEN];
+	starttime_tmp[0] = '\0';
+	snprintf(starttime_tmp, MAX_STRING_LEN-1, "%d%s%s", epoch_time, STRING_CONST_PROGRAM_STARTTIME_SEPARATOR, utc_time);
+	program_start_time_string = strdup(starttime_tmp);
+    }
+
     // obtain current working directory
     char cwd[MAX_PATH_LEN];
     char *cwd_string = NULL;
@@ -497,6 +613,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     log_string_len += strlen(program_name);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(program_args_string);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(program_start_time_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(func_name);
     if (func_num_args > 0) {
@@ -528,6 +646,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     strcat(log_string, program_name);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, program_args_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, program_start_time_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, func_name);
     if (func_num_args > 0) {
