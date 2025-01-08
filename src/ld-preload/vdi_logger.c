@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 bool _global_show_log_path = true;
+int _global_debug_level = 0;
 
 const int MAX_BUFFER_SIZE = 4096;
 const int MAX_PATH_LEN = PATH_MAX;
@@ -36,6 +37,7 @@ const char* STRING_CONST_ENVVAR_VDI_LOG_DIR = "VDI_LOG_DIR";
 const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_DIR = "${HOME}/.vdi/logs";
 const char* STRING_CONST_ENVVAR_VDI_LOG_FILE_PREFIX = "VDI_LOG_FILE_PREFIX";
 const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_FILE_PREFIX = "vdi_log.";
+const char* STRING_CONST_ENVVAR_VDI_LOG_DEBUG_LEVEL = "VDI_LOG_DEBUG_LEVEL";
 const char* STRING_CONST_UTC_ERROR = "UTC_ERROR";
 const char* STRING_CONST_READLINK_ERROR = "READLINK_ERROR";
 const char* STRING_CONST_PROGRAM_ARGS_ERROR = "PROGRAM_ARGS_ERROR";
@@ -58,6 +60,32 @@ const char* STRING_CONST_PROGRAM_STARTTIME_SEPARATOR = "%%";
 int (*actual_open)() = NULL;
 int (*actual_write)() = NULL;
 FILE* (*actual_fopen)() = NULL;
+
+// debug function
+void debug(int debug_level, const char* format, ...) {
+    if (debug_level <= _global_debug_level) {
+        va_list args;
+        va_start(args, format);
+        vprintf(format, args);
+        va_end(args);
+    }
+}
+
+// constructor function
+__attribute__((constructor))
+void library_load(void) {
+    char *value = getenv(STRING_CONST_ENVVAR_VDI_LOG_DEBUG_LEVEL);
+    if (value) {
+        _global_debug_level = atoi(value);
+    }
+    debug(2, "Shared Library Loaded: library_load() called\n");
+}
+
+// destructor function
+__attribute__((destructor))
+void library_unload(void) {
+    debug(2, "Shared Library Unloaded: library_unload() called\n");
+}
 
 // helper functions
 void convert_ticks_to_epoch_and_utc(long long start_time_ticks, int *epoch_time, char *utc_time, size_t size) {
@@ -313,7 +341,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     }
     char *log_path = get_log_path();
     if (_global_show_log_path) {
-        printf("vdi_logger.so: using log file '%s'\n", log_path);
+        debug(1, "vdi_logger.so: using log file '%s'\n", log_path);
         _global_show_log_path = false;
     }
     char *log_dir = get_directory(log_path);
@@ -428,7 +456,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
                                         host, NI_MAXHOST,
                                         NULL, 0, NI_NUMERICHOST);
                     if (s != 0) {
-                        printf("vdi_logger.so: getnameinfo() failed: %s\n", gai_strerror(s));
+                        debug(4, "vdi_logger.so: getnameinfo() failed: %s\n", gai_strerror(s));
                         continue;
                     }
 
@@ -684,7 +712,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     }
     strcat(log_string, STRING_CONST_LOG_NEW_LINE);
 
-    // printf("vdi_logger: log_string='%s', strlen(log_string)=%ld\n", log_string, strlen(log_string));
+    debug(4, "vdi_logger: log_string='%s', strlen(log_string)=%ld\n", log_string, strlen(log_string));
 
     if (actual_write == NULL) {
         actual_write = dlsym(RTLD_NEXT, STRING_CONST_WRITE_FUNCNAME);
@@ -695,7 +723,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     if (bytes_written == -1) {
         perror("Failed to write to file");
     }
-    // printf("wrote %ld bytes to fd %d\n", bytes_written, logfd);
+    debug(4, "wrote %ld bytes to fd %d\n", bytes_written, logfd);
 
     // free log_string
     free(log_string);
@@ -788,7 +816,7 @@ char *map_flags_to_strings(int flags) {
 
 // intercepted calls
 FILE *fopen64(const char *pathname, const char *mode) {
-    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
+    debug(3, "vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     char **func_args = create_array_of_strings(2, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
     snprintf(func_args[1], MAX_STRING_LEN-1, "%s", mode);
@@ -801,7 +829,7 @@ FILE *fopen64(const char *pathname, const char *mode) {
 }
 
 FILE *fopen(const char *pathname, const char *mode) {
-    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
+    debug(3, "vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     char **func_args = create_array_of_strings(2, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
     snprintf(func_args[1], MAX_STRING_LEN-1, "%s", mode);
@@ -814,7 +842,7 @@ FILE *fopen(const char *pathname, const char *mode) {
 }
 
 FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
-    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
+    debug(3, "vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     int num_func_args = 3;
     char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%d", dirfd);
@@ -830,7 +858,7 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
 }
 
 int open64(const char *pathname, int flags, mode_t mode) {
-    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
+    debug(3, "vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     char **func_args = create_array_of_strings(3, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
     snprintf(func_args[1], MAX_STRING_LEN-1, "%d::%s", flags, map_flags_to_strings(flags));
@@ -844,7 +872,7 @@ int open64(const char *pathname, int flags, mode_t mode) {
 }
 
 int openat(int dirfd, const char *pathname, int flags, ...) {
-    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
+    debug(3, "vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     int num_func_args = (flags & O_CREAT ? 4 : 3);
     char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%d", dirfd);
@@ -875,7 +903,7 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
 }
 
 int open(const char *pathname, int flags, ...) {
-    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
+    debug(3, "vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     int num_func_args = (flags & O_CREAT ? 3 : 2);
     char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);

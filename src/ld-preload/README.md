@@ -85,3 +85,13 @@ will print the messages
 vdi_logger.so: using log file '/tmp/vdi_log_almalinux.43948'
 created PNG-file 'outputs/no.json_map.png'
 ```
+
+### Configuring debug information
+To obtain any output about the processing of the logger the environment variable `VDI_LOG_DEBUG_LEVEL` may be set. For values and what information will be shown, see the table below. The default debug level is zero (0).
+| Debug level | Description |
+|-------------|-------------|
+| 0 | Default level (variable unset or empty). The logger will print no information. |
+| 1 | The path to the log file will be printed. |
+| 2 | Information about the loading and unloading of the vdi_logger.so shared library and level 1 will be printed. |
+| 3 | Information about intercepted calls and levels 1-2 will be printed. |
+| 4 | Information about runtime errors and processing details of the logger and levels 1-3 will be printed. |
