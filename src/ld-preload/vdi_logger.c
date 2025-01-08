@@ -47,6 +47,7 @@ const char* STRING_CONST_FQHN_ERROR = "FQHN_ERROR";
 const char* STRING_CONST_FQHN_NOT_RESOLVED_ERROR = "FQHN_NOT_RESOLVED_ERROR";
 const char* STRING_CONST_IP_ADDRESS_ERROR = "IP_ADDRESS_ERROR";
 const char* STRING_CONST_PROGRAM_START_TIME_ERROR = "PROGRAM_START_TIME_ERROR";
+const char* STRING_CONST_PROGRAM_ELAPSED_TIME_ERROR = "PROGRAM_ELAPSED_TIME_ERROR";
 const char* STRING_CONST_PROGRAM_ARG_SEPARATOR = "%%";
 const char* STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE = "##";
 const char* STRING_CONST_FQHN_AND_IP_SEPARATOR = "//";
@@ -289,7 +290,7 @@ long long get_process_start_time(pid_t pid) {
                         }
                     }
                 }
-        
+
                 // skip any trailing spaces
                 while (*ptr == ' ') {
                     ptr++;
@@ -316,7 +317,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         _global_show_log_path = false;
     }
     char *log_dir = get_directory(log_path);
- 
+
     if (create_dir(log_dir) != EXIT_SUCCESS) {
         char err_msg[MAX_STRING_LEN];
         snprintf(err_msg, MAX_STRING_LEN, "log dir '%s' does not exist or is not a directory", log_dir);
@@ -478,7 +479,6 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         }
     }
 
-
     int fqhn_and_ip_string_len = 0;
     fqhn_and_ip_string_len += strlen(hostname_string);
     fqhn_and_ip_string_len += strlen(STRING_CONST_FQHN_AND_IP_SEPARATOR);
@@ -571,19 +571,38 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     }
 
     // get date+time when program was started
+    // AND get elpased time of process (program)
+    //   convert start time into micro seconds, obtain the current time in microseconds and calculate the difference
     long long start_time_ticks = get_process_start_time(pid);
     char *program_start_time_string;
+    char *elapsed_time_string;
     if (start_time_ticks == -1) {
         program_start_time_string = strdup(STRING_CONST_PROGRAM_START_TIME_ERROR);
+        elapsed_time_string = strdup(STRING_CONST_PROGRAM_ELAPSED_TIME_ERROR);
     } else {
-	char utc_time[MAX_STRING_LEN];
-	utc_time[0] = '\0';
-	int epoch_time = -1;
-	convert_ticks_to_epoch_and_utc(start_time_ticks, &epoch_time, utc_time, sizeof(utc_time));
-	char starttime_tmp[MAX_STRING_LEN];
-	starttime_tmp[0] = '\0';
-	snprintf(starttime_tmp, MAX_STRING_LEN-1, "%d%s%s", epoch_time, STRING_CONST_PROGRAM_STARTTIME_SEPARATOR, utc_time);
-	program_start_time_string = strdup(starttime_tmp);
+        char program_start_time_utc[MAX_STRING_LEN];
+        program_start_time_utc[0] = '\0';
+        int program_start_time_epoch = -1;
+        convert_ticks_to_epoch_and_utc(start_time_ticks, &program_start_time_epoch, program_start_time_utc, sizeof(program_start_time_utc));
+        char starttime_tmp[MAX_STRING_LEN];
+        starttime_tmp[0] = '\0';
+        snprintf(starttime_tmp, MAX_STRING_LEN-1, "%d%s%s", program_start_time_epoch, STRING_CONST_PROGRAM_STARTTIME_SEPARATOR, program_start_time_utc);
+        program_start_time_string = strdup(starttime_tmp);
+
+        char elapsed_tmp[MAX_STRING_LEN];
+        elapsed_tmp[0] = '\0';
+        long ticks_per_second = sysconf(_SC_CLK_TCK);
+        long program_start_time_microseconds = (start_time_ticks * 1000000LL) / ticks_per_second;
+
+        struct timespec ts;
+        if (clock_gettime(CLOCK_BOOTTIME, &ts) != 0) {
+            elapsed_time_string = strdup(STRING_CONST_PROGRAM_ELAPSED_TIME_ERROR);
+        } else {
+            long time_since_boot_microseconds = ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+            long program_elapsed_time_microseconds = time_since_boot_microseconds - program_start_time_microseconds;
+            snprintf(elapsed_tmp, MAX_STRING_LEN-1, "%ld", program_elapsed_time_microseconds);
+            elapsed_time_string = strdup(elapsed_tmp);
+        }
     }
 
     // obtain current working directory
@@ -615,6 +634,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     log_string_len += strlen(program_args_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(program_start_time_string);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(elapsed_time_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(func_name);
     if (func_num_args > 0) {
@@ -648,6 +669,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     strcat(log_string, program_args_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, program_start_time_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, elapsed_time_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, func_name);
     if (func_num_args > 0) {
@@ -764,31 +787,50 @@ char *map_flags_to_strings(int flags) {
 }
 
 // intercepted calls
-FILE *fopen(const char *pathname, const char *mode) {
+FILE *fopen64(const char *pathname, const char *mode) {
+    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     char **func_args = create_array_of_strings(2, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
     snprintf(func_args[1], MAX_STRING_LEN-1, "%s", mode);
     log_call(__func__, 2, func_args);
     free_array_of_strings(func_args, 2);
 
-    // call the actual open64 function
+    // call the actual fopen function
+    FILE* (*actual_fopen64)() = dlsym(RTLD_NEXT, __func__);
+    return actual_fopen64(pathname, mode);
+}
+
+FILE *fopen(const char *pathname, const char *mode) {
+    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
+    char **func_args = create_array_of_strings(2, MAX_STRING_LEN);
+    snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
+    snprintf(func_args[1], MAX_STRING_LEN-1, "%s", mode);
+    log_call(__func__, 2, func_args);
+    free_array_of_strings(func_args, 2);
+
+    // call the actual fopen function
     FILE* (*actual_fopen)() = dlsym(RTLD_NEXT, __func__);
     return actual_fopen(pathname, mode);
 }
 
-//bfd *bfd_openr(const char *filename, const char *target) {
-//    char **func_args = create_array_of_strings(2, MAX_STRING_LEN);
-//    snprintf(func_args[0], MAX_STRING_LEN-1, "%s", filename);
-//    snprintf(func_args[1], MAX_STRING_LEN-1, "%s", target);
-//    log_call(__func__, 2, func_args);
-//    free_array_of_strings(func_args, 2);
-//
-//    // call the actual bfd_openr function
-//    bfd* (*actual_bfd_openr)() = dlsym(RTLD_NEXT, __func__);
-//    return actual_bfd_openr(filename, target);
-//}
+FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
+    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
+    int num_func_args = 3;
+    char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
+    snprintf(func_args[0], MAX_STRING_LEN-1, "%d", dirfd);
+    snprintf(func_args[1], MAX_STRING_LEN-1, "%s", pathname);
+    snprintf(func_args[2], MAX_STRING_LEN-1, "%s", mode);
+
+    log_call(__func__, num_func_args, func_args);
+    free_array_of_strings(func_args, num_func_args);
+
+    // call the actual openat function
+    FILE* (*actual_fopenat)() = dlsym(RTLD_NEXT, __func__);
+    return actual_fopenat(dirfd, pathname, mode);
+}
 
 int open64(const char *pathname, int flags, mode_t mode) {
+    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     char **func_args = create_array_of_strings(3, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
     snprintf(func_args[1], MAX_STRING_LEN-1, "%d::%s", flags, map_flags_to_strings(flags));
@@ -802,6 +844,7 @@ int open64(const char *pathname, int flags, mode_t mode) {
 }
 
 int openat(int dirfd, const char *pathname, int flags, ...) {
+    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     int num_func_args = (flags & O_CREAT ? 4 : 3);
     char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%d", dirfd);
@@ -832,6 +875,7 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
 }
 
 int open(const char *pathname, int flags, ...) {
+    //printf("vdi_logger.so: '%s' called for '%s'\n", __func__, pathname);
     int num_func_args = (flags & O_CREAT ? 3 : 2);
     char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
