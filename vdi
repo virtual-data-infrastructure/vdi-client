@@ -53,7 +53,7 @@ while [[ "$#" -gt 0 ]]; do
   case "${CMD}" in
     run)
       # run the command (should be at least one more word because of the cond expr in while)
-      [[ ${DRY_RUN} -eq 0 ]] && LD_PRELOAD=${CMD_DIR}/lib64/libvdi.so "${@}" || echo "dry-run: run '${@}'"
+      [[ ${DRY_RUN} -eq 0 ]] && LD_PRELOAD=${CMD_DIR}/../lib64/libvdi.so "${@}" || echo "dry-run: run '${@}'"
       break
       ;;
   esac

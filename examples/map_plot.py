@@ -27,6 +27,9 @@ plt.title('A map for "' + args.filename + '"')
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 
+# make sure the output directory exists
+os.makedirs(args.out, exist_ok=True)
+
 # save the plot as a PNG file
 png_path = args.out + '/' + os.path.basename(args.filename) + '_map.png'
 plt.savefig(png_path, dpi=300)
