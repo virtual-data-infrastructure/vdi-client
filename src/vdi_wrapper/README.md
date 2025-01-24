@@ -1,4 +1,4 @@
-# Directory for the VDI shared wrapper library `libvdi.so`
+# Directory for the shared wrapper library `libvdi.so` that implements the VDI extensions to EESSI
 
 Technically, the library is loaded via `$LD_PRELOAD` to enable using the tools / libraries for augmenting or changing existing functionality to collect data traces and other capabilities of the _virtual data infrastructure_. The main purpose of employing `$LD_PRELOAD` is to have a quick path towards experimenting with augmenting existing system calls such as `open` or `execve`.
 
@@ -11,45 +11,11 @@ Disadvantages:
 - `$LD_PRELOAD` may have undesired consequences leading to program crashes, unresolved libraries/symbols, or conflicts.
 
 ## Building the wrapper library
-Simply run `make` and/or `make install`. The `Makefile` checks whether EESSI is initialized and whether the compiler from the compatibility layer in EESSI will be used. If either check fails, the `Makefile` exits and prints some guidance to resolve the issue.
+Simply run `make all` and/or `make install`. The `Makefile` checks whether EESSI is initialized and whether the compiler from the compatibility layer in EESSI will be used. If either check fails, the `Makefile` exits and prints some guidance to resolve the issue.
 
 ## Using the wrapper library
 The wrapper library can be used by setting `LD_PRELOAD` to the path of the library (either `${PWD}/build/libvdi.so` or `${PWD}/../../lib64/libvdi.so`) before running any command. A more comfortable means is provided by the script `vdi` that is provided in the main directory of this repository. After running `make install` in the main directory the script will be installed in the `bin` directory. For more information on using the script see [main README](../../README.md)
 
-### Example: `map_plot.py`
-
-Load `geopandas`
-```
-module load geopandas/0.14.2-foss-2023a
-```
-Run example
-```
-LD_PRELOAD=libvdi_logger.so python examples/map_plot.py data/no.json --out outputs
-```
-which creates the PNG-file `outputs/no.json_map.png`. The run will also print a message like
-```
-vdi_logger.so: using log file '/home/almalinux/.vdi/logs/vdi_log.43944'
-```
-In this case, the log shows lots of `openat` calls for opening `.pyc` files under `/cvmfs/software.eessi.io`. Filtering these out with
-```
-grep -v "python.* /cvmfs" /home/almalinux/.vdi/logs/vdi_log.43944
-```
-we get the following accesses
-```
-1736344161::2025-01-08+13:49:21+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 39057 open64 /home/almalinux/data-graph/src/ld-preload/examples/map_plot.py 524288::O_RDONLY 438::0666
-1736344161::2025-01-08+13:49:21+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 39648 fopen64 /home/almalinux/data-graph/src/ld-preload/examples/map_plot.py rb
-1736344161::2025-01-08+13:49:21+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 300142 open64 /usr/share/zoneinfo/UTC 524288::O_RDONLY 438::0666
-1736344162::2025-01-08+13:49:22+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 939529 open64 /home/almalinux/.cache/matplotlib/fontlist-v330.json 524288::O_RDONLY 438::0666
-1736344162::2025-01-08+13:49:22+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 1249633 fopen /home/almalinux/.local/share/proj/proj.ini rb
-1736344162::2025-01-08+13:49:22+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 1251107 fopen /home/almalinux/.local/share/proj/proj.db rb
-1736344162::2025-01-08+13:49:22+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 1261552 fopen64 /home/almalinux/.gdal/gdalrc rb
-1736344162::2025-01-08+13:49:22+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 1301996 fopen64 data/no.json rb
-1736344162::2025-01-08+13:49:22+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 1477680 open64 outputs/no.json_map.png 524866::O_RDONLY+O_RDWR+O_CREAT+O_TRUNC 438::0666
-```
-The Python script `map_plot.py` also prints a message about the image file it has created such as
-```
-created PNG-file 'outputs/no.json_map.png'
-```
 ### Format of the log file line
 
 | Column | Description |
@@ -76,11 +42,11 @@ Both the directory and the prefix/name can be configured with the environment va
 ```
 export VDI_LOG_DIR=/tmp
 export VDI_LOG_FILE_PREFIX='vdi_log_${USER}.'
-LD_PRELOAD=libvdi_logger.so python examples/map_plot.py data/no.json --out outputs
+vdi run python examples/map_plot.py data/no.json --out outputs
 ```
 will print the messages
 ```
-vdi_logger.so: using log file '/tmp/vdi_log_almalinux.43948'
+vdi_logger.so: using log file '/tmp/vdi_log_almalinux.43948.log'
 created PNG-file 'outputs/no.json_map.png'
 ```
 

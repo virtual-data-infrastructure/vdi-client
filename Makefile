@@ -8,7 +8,7 @@ SCRIPT = vdi
 TARGET = libvdi.so
 
 # default target to install both the script and the shared library
-all: install-library install-script
+all: install
 
 # install target
 install: install-library install-script
