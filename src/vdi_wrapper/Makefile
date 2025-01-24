@@ -22,8 +22,8 @@ SRCS = vdi.c
 # object file (in the build directory)
 OBJ = $(BUILD_DIR)/$(TARGET)
 
-# default target
-all: is_eessi_initialized compiler_from_compat_layer $(BUILD_DIR) $(OBJ)
+# compile target
+compile: is_eessi_initialized compiler_from_compat_layer $(BUILD_DIR) $(OBJ)
 
 # function to check if EESSI is initialized
 is_eessi_initialized:
@@ -53,9 +53,12 @@ $(OBJ): $(SRCS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # install the shared library to the installation directory
-install: all
+install: compile
 	mkdir -p $(INSTALL_DIR)
 	cp $(OBJ) $(INSTALL_DIR)/
+
+# default target
+all: install
 
 # clean rule (remove build artifacts)
 clean:
@@ -69,4 +72,4 @@ clean-install:
 clean-all: clean clean-install
 
 # phony targets
-.PHONY: all clean install $(BUILD_DIR) clean-install clean-all is_eessi_initialized compiler_from_compat_layer
+.PHONY: all build clean install $(BUILD_DIR) clean-install clean-all is_eessi_initialized compiler_from_compat_layer
