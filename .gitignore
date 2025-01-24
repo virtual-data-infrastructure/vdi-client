@@ -1,3 +1,10 @@
+# install directories
+bin/
+lib64/
+
+# build directories
+src/vdi_wrapper/build/
+
 # Prerequisites
 *.d
 
