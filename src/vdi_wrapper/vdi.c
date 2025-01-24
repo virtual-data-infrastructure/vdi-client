@@ -263,7 +263,7 @@ char* get_log_path(void) {
         env_vdi_log_file_prefix = expand_shell_vars(env_vdi_log_file_prefix);
     }
 
-    snprintf(log_path, MAX_PATH_LEN, "%s/%s%d", env_vdi_log_dir, env_vdi_log_file_prefix, pid);
+    snprintf(log_path, MAX_PATH_LEN, "%s/%s%d.log", env_vdi_log_dir, env_vdi_log_file_prefix, pid);
     return log_path;
 }
 
