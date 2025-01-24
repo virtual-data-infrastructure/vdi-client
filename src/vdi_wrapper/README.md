@@ -1,5 +1,6 @@
-# Directory for code employing `$LD_PRELOAD` to collect (data) traces
-Employing `$LD_PRELOAD` will enable using the tools / libraries for augmenting or changing existing functionality to collect data traces. The main purpose of employing `$LD_PRELOAD` is to have a quick path towards playing with augmenting existing system calls such as `open` or `execve`.
+# Directory for the VDI shared wrapper library `libvdi.so`
+
+Technically, the library is loaded via `$LD_PRELOAD` to enable using the tools / libraries for augmenting or changing existing functionality to collect data traces and other capabilities of the _virtual data infrastructure_. The main purpose of employing `$LD_PRELOAD` is to have a quick path towards experimenting with augmenting existing system calls such as `open` or `execve`.
 
 Advantages:
 - Can be used with existing systems.
@@ -10,16 +11,10 @@ Disadvantages:
 - `$LD_PRELOAD` may have undesired consequences leading to program crashes, unresolved libraries/symbols, or conflicts.
 
 ## Building the wrapper library
-Make sure to use the `gcc` from the compatibulity layer. Run `which gcc`, which should print something like
-```
-/cvmfs/software.eessi.io/versions/2023.06/compat/linux/x86_64/usr/bin/gcc
-```
-Build the wrapper library `libvdi_logger.so` with
-```
-gcc -fPIC -shared -o libvdi_logger.so vdi_logger.c -ldl -Wall -Wextra -Werror -g
-```
+Simply run `make` and/or `make install`. The `Makefile` checks whether EESSI is initialized and whether the compiler from the compatibility layer in EESSI will be used. If either check fails, the `Makefile` exits and prints some guidance to resolve the issue.
+
 ## Using the wrapper library
-Simply set `LD_PRELOAD=libvdi_logger.so` before running a program. For some Python examples provided in the `examples` directory, load the necessary modules and run some tests
+The wrapper library can be used by setting `LD_PRELOAD` to the path of the library (either `${PWD}/build/libvdi.so` or `${PWD}/../../lib64/libvdi.so`) before running any command. A more comfortable means is provided by the script `vdi` that is provided in the main directory of this repository. After running `make install` in the main directory the script will be installed in the `bin` directory. For more information on using the script see [main README](../../README.md)
 
 ### Example: `map_plot.py`
 
