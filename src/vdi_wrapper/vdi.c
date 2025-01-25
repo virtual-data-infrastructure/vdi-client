@@ -67,11 +67,19 @@ void debug(int debug_level, const char* format, ...) {
     if (debug_level <= _global_debug_level) {
         va_list args;
         va_start(args, format);
-        char *format_with_prefix = (char *)malloc((strlen(STRING_CONST_VDI_DEBUG_PREFIX)+strlen(format)+1) * sizeof(char));
+
+        // prepare pid string to add to debug output after prefix
+        char pid_string[32];
+        pid_t pid = getpid();
+        snprintf(pid_string, sizeof(pid_string), "[pid %d] ", pid);
+
+        int string_length = strlen(STRING_CONST_VDI_DEBUG_PREFIX)+strlen(pid_string)+strlen(format)+1;
+        char *format_with_prefix = (char *)malloc(string_length * sizeof(char));
         format_with_prefix[0] = '\0';
         strcat(format_with_prefix, STRING_CONST_VDI_DEBUG_PREFIX);
+        strcat(format_with_prefix, pid_string);
         strcat(format_with_prefix, format);
-        vprintf(format_with_prefix, args);
+        vfprintf(stderr, format_with_prefix, args);
         va_end(args);
         free(format_with_prefix);
     }
@@ -85,6 +93,9 @@ void library_load(void) {
         _global_debug_level = atoi(value);
     }
     debug(2, "Shared Library Loaded: library_load() called\n");
+    if (actual_open == NULL) {
+        actual_open = dlsym(RTLD_NEXT, STRING_CONST_OPEN_FUNCNAME);
+    }
 }
 
 // destructor function
@@ -342,9 +353,6 @@ long long get_process_start_time(pid_t pid) {
 }
 
 int log_call(const char *func_name, int func_num_args, char **func_args) {
-    if (actual_open == NULL) {
-        actual_open = dlsym(RTLD_NEXT, STRING_CONST_OPEN_FUNCNAME);
-    }
     char *log_path = get_log_path();
     if (_global_show_log_path) {
         debug(1, "using log file '%s'\n", log_path);
