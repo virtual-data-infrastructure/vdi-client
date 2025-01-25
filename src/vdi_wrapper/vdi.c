@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <ctype.h>
+#include <curl/curl.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -28,9 +29,16 @@ const int MAX_STRING_LEN = 1024;
 const int MAX_HOSTNAME_LEN = 256;
 
 
+const char* STRING_CONST_FCLOSE_FUNCNAME = "fclose";
+const char* STRING_CONST_FOPEN64_FUNCNAME = "fopen64";
+const char* STRING_CONST_FOPENAT_FUNCNAME = "fopenat";
+const char* STRING_CONST_FOPEN_FUNCNAME = "fopen";
+const char* STRING_CONST_FWRITE_FUNCNAME = "fwrite";
+const char* STRING_CONST_OPEN64_FUNCNAME = "open64";
+const char* STRING_CONST_OPENAT_FUNCNAME = "openat";
 const char* STRING_CONST_OPEN_FUNCNAME = "open";
 const char* STRING_CONST_WRITE_FUNCNAME = "write";
-const char* STRING_CONST_FOPEN_FUNCNAME = "fopen";
+
 const char* STRING_CONST_LOG_COLUMN_SEPARATOR = " ";
 const char* STRING_CONST_LOG_NEW_LINE = "\n";
 const char* STRING_CONST_ENVVAR_VDI_LOG_DIR = "VDI_LOG_DIR";
@@ -55,12 +63,30 @@ const char* STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE = "##";
 const char* STRING_CONST_FQHN_AND_IP_SEPARATOR = "//";
 const char* STRING_CONST_IPVER_SEPARATOR = "%%";
 const char* STRING_CONST_PROGRAM_STARTTIME_SEPARATOR = "%%";
+const char* STRING_CONST_DIRECTORY_SEPARATOR = "/";
 const char* STRING_CONST_VDI_DEBUG_PREFIX = "vdi.so: ";
+const char* STRING_CONST_ENVVAR_VDI_DOWNLOAD_BASE = "VDI_DOWNLOAD_BASE";
+const char* STRING_CONST_DOWNLOAD_BASE_DEFAULT = "/tmp/%s/vdi/downloads"; // replace with $USER
+const char* STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE = "%d.%d.%s"; // $$.EPOCH.filename_from_url
+const char* STRING_CONST_DOWNLOAD_FILENAME_DEFAULT = "default_filename";
+
+const char *URL_PREFIXES[] = {
+  "https://",
+  "http://",
+  "ftp://"
+};
+size_t NUM_URL_PREFIXES = sizeof(URL_PREFIXES) / sizeof(URL_PREFIXES[0]);
 
 // functions we use in here but that are also wrapped
+int (*actual_fclose)() = NULL;
+FILE* (*actual_fopen64)() = NULL;
+FILE* (*actual_fopenat)() = NULL;
+FILE* (*actual_fopen)() = NULL;
+size_t (*actual_fwrite)() = NULL;
+int (*actual_open64)() = NULL;
+int (*actual_openat)() = NULL;
 int (*actual_open)() = NULL;
 int (*actual_write)() = NULL;
-FILE* (*actual_fopen)() = NULL;
 
 // debug function
 void debug(int debug_level, const char* format, ...) {
@@ -93,6 +119,32 @@ void library_load(void) {
         _global_debug_level = atoi(value);
     }
     debug(2, "Shared Library Loaded: library_load() called\n");
+
+    // obtain pointers to actual functions
+    if (actual_fclose == NULL) {
+      actual_fclose = dlsym(RTLD_NEXT, STRING_CONST_FCLOSE_FUNCNAME);
+    }
+    if (actual_fopen64 == NULL) {
+      actual_fopen64 = dlsym(RTLD_NEXT, STRING_CONST_FOPEN64_FUNCNAME);
+    }
+    if (actual_fopenat == NULL) {
+      actual_fopenat = dlsym(RTLD_NEXT, STRING_CONST_FOPENAT_FUNCNAME);
+    }
+    if (actual_fopen == NULL) {
+      actual_fopen = dlsym(RTLD_NEXT, STRING_CONST_FOPEN_FUNCNAME);
+    }
+    if (actual_fwrite == NULL) {
+      actual_fwrite = dlsym(RTLD_NEXT, STRING_CONST_FWRITE_FUNCNAME);
+    }
+    if (actual_write == NULL) {
+      actual_write = dlsym(RTLD_NEXT, STRING_CONST_WRITE_FUNCNAME);
+    }
+    if (actual_open64 == NULL) {
+        actual_open64 = dlsym(RTLD_NEXT, STRING_CONST_OPEN64_FUNCNAME);
+    }
+    if (actual_openat == NULL) {
+        actual_openat = dlsym(RTLD_NEXT, STRING_CONST_OPENAT_FUNCNAME);
+    }
     if (actual_open == NULL) {
         actual_open = dlsym(RTLD_NEXT, STRING_CONST_OPEN_FUNCNAME);
     }
@@ -144,29 +196,194 @@ char** create_array_of_strings(int num_strings, int string_len) {
 }
 
 int create_dir(const char *pathname) {
-    struct stat st;
+    char temp_path[MAX_PATH_LEN];
+    strncpy(temp_path, pathname, sizeof(temp_path));
+    temp_path[sizeof(temp_path) - 1] = '\0';
 
-    // check if the directory exists
-    if (stat(pathname, &st) == 0) {
-        if (S_ISDIR(st.st_mode)) {
-            // pathname already exists and is a directory
-            return EXIT_SUCCESS;
-        } else {
-            // pathname exists but is not a directory
-            return EXIT_FAILURE;
-        }
-    } else {
-        // pathname does not exist yet
-        if (errno == ENOENT) {
-            if (mkdir(pathname, 0755) == 0) {
-                return EXIT_SUCCESS;
-            } else {
-                return EXIT_FAILURE;
+    // iterate over each '/' in the pathname
+    for (char *p = strchr(temp_path + 1, '/'); p != NULL; p = strchr(p + 1, '/')) {
+        *p = '\0';
+        struct stat st;
+        if (stat(temp_path, &st) != 0) {
+            if (mkdir(temp_path, 0700) != 0) {
+                perror("mkdir");
+                return -1;
             }
-        } else {
-            return EXIT_FAILURE;
+        } else if (!S_ISDIR(st.st_mode)) {
+            // path exists but is not a directory
+            errno = ENOTDIR;
+            perror("not a directory");
+            return -1;
         }
+        *p = '/';
     }
+
+    // Finally, create the full directory path
+    struct stat st;
+    if (stat(temp_path, &st) != 0) {
+        if (mkdir(temp_path, 0700) != 0) {
+            perror("mkdir");
+            return -1;
+        }
+    } else if (!S_ISDIR(st.st_mode)) {
+        errno = ENOTDIR;
+        perror("not a directory");
+        return -1;
+    }
+
+    return 0;
+}
+
+const char *get_filename_from_url(const char *url) {
+    const char *slash = strrchr(url, '/');
+    if (!slash || strlen(slash + 1) == 0) {
+        // return NULL if no slash or no filename after the slash
+        return NULL;
+    }
+    return slash + 1;
+}
+
+char* get_directory(char *path) {
+    if (path == NULL || *path == '\0') {
+        return ".";
+    }
+
+    // duplicate the input path to avoid modifying the original
+    char *temp_path = strdup(path);
+    if (temp_path == NULL) {
+        return ".";
+    }
+
+    // remove trailing slashes
+    char *end = temp_path + strlen(temp_path) - 1;
+    while (end > temp_path && *end == '/') {
+        *end = '\0';
+        end--;
+    }
+
+    // find the last slash
+    char *last_slash = strrchr(temp_path, '/');
+
+    // handle different cases based on the position of the last slash
+    if (last_slash == NULL) {
+        // no slash found, return "."
+        free(temp_path);
+        return ".";
+    } else if (last_slash == temp_path) {
+        // the last slash is the first character
+        *(last_slash + 1) = '\0';
+    } else {
+        // truncate the path at the last slash
+        *last_slash = '\0';
+    }
+
+    // duplicate the result to return and free the temporary buffer
+    char *result = strdup(temp_path);
+    free(temp_path);
+    return result;
+}
+
+// callback function to write received data to a file (used by curl in function
+// download below)
+size_t write_data(void *ptr, size_t size, size_t nmemb, FILE *stream) {
+  size_t written = actual_fwrite(ptr, size, nmemb, stream);
+  return written;
+}
+
+// possible error codes:
+// EFAULT - bad address
+// EACCES - permission denied
+// ENAMETOOLONG - file name too long
+// ENOENT - no such file or directory
+// ENOMEM - out of memory
+// ENOSPC - no space left on device
+int download(const char *url, char **local_path) {
+  // default local download location: /tmp/$USER/vdi/downloads/$$.EPOCH.filename_from_url
+  // if env var VDI_DOWNLOAD_BASE is set, use $VDI_DOWNLOAD_BASE/$$.EPOCH.filename_from_url
+  // STRING_CONST_DOWNLOAD_BASE_DEFAULT = "/tmp/%s/vdi/downloads"; // replace with $USER
+  // STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE = "%d.%d.%s"; // $$.EPOCH.filename_from_url
+  // TODO if local_path is initialized use that as path to store file (need to check
+  //   whether it exists, so then also need flags/mode from open call
+
+  // determine download base dir
+  char *download_base = getenv(STRING_CONST_ENVVAR_VDI_DOWNLOAD_BASE);
+  if (download_base == NULL) {
+    char *username = NULL;
+    uid_t uid = getuid();
+    // get the password record for the current user
+    struct passwd *pw = getpwuid(uid);
+    if (pw == NULL) {
+        username = strdup(STRING_CONST_USERNAME_ERROR);
+    } else {
+        username = pw->pw_name;
+    }
+    char path[MAX_PATH_LEN];
+    snprintf(path, MAX_PATH_LEN-1, STRING_CONST_DOWNLOAD_BASE_DEFAULT, username);
+    download_base = strdup(path);
+  }
+  // determine download filename
+  char *local_filename = (char *) get_filename_from_url(url);
+  if (local_filename == NULL) {
+    // use alternative approach with STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE
+    // for which we need the process id, the epoch and a default filename
+    char tmp_filename[MAX_PATH_LEN];
+    tmp_filename[0] = '\0';
+    pid_t pid = getpid();
+    time_t epoch = time(NULL);
+    snprintf(tmp_filename, MAX_PATH_LEN-1, STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE, pid, epoch, STRING_CONST_DOWNLOAD_FILENAME_DEFAULT);
+    local_filename = strdup(tmp_filename);
+  }
+  char fullpath_local_file[MAX_PATH_LEN];
+  fullpath_local_file[0] = '\0';
+  strcat(fullpath_local_file, download_base);
+  strcat(fullpath_local_file, STRING_CONST_DIRECTORY_SEPARATOR);
+  strcat(fullpath_local_file, local_filename);
+  *local_path = fullpath_local_file;
+
+  // obtain directory from fullpath_local_file and make sure it exists
+  char *fullpath_directory = get_directory(fullpath_local_file);
+  if (create_dir(fullpath_directory) != EXIT_SUCCESS) {
+    char err_msg[MAX_STRING_LEN];
+    snprintf(err_msg, MAX_STRING_LEN, "download dir '%s' does not exist or is not a directory", fullpath_directory);
+    perror(err_msg);
+    return EXIT_FAILURE;
+  }
+  debug(4, "created directory '%s' to download '%s'\n", fullpath_directory, fullpath_local_file);
+
+  CURL *curl;
+  FILE *fp;
+  CURLcode res;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  if (curl) {
+      fp = actual_fopen(fullpath_local_file, "wb");
+      int error_code = errno;
+      if (fp == NULL) {
+          char err_msg[MAX_STRING_LEN];
+          snprintf(err_msg, MAX_STRING_LEN, "Failed to open file '%s' for writing", fullpath_local_file);
+          perror(err_msg);
+          return error_code; // rather use some error code
+      }
+      
+      curl_easy_setopt(curl, CURLOPT_URL, url);
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+      // skip automatically following redirects? maybe allow it for idea 2
+      curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirections if necessary
+
+      res = curl_easy_perform(curl);
+      if (res != CURLE_OK) {
+          fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+          return res; // rather use some error code
+      }
+
+      actual_fclose(fp);
+      curl_easy_cleanup(curl);
+  }
+  curl_global_cleanup();
+
+  return 0;
 }
 
 char *expand_shell_vars(const char *str) {
@@ -222,46 +439,6 @@ int free_array_of_strings(char **array, int num_strings) {
     return EXIT_SUCCESS;
 }
 
-char* get_directory(char *path) {
-    if (path == NULL || *path == '\0') {
-        return ".";
-    }
-
-    // duplicate the input path to avoid modifying the original
-    char *temp_path = strdup(path);
-    if (temp_path == NULL) {
-        return ".";
-    }
-
-    // remove trailing slashes
-    char *end = temp_path + strlen(temp_path) - 1;
-    while (end > temp_path && *end == '/') {
-        *end = '\0';
-        end--;
-    }
-
-    // find the last slash
-    char *last_slash = strrchr(temp_path, '/');
-
-    // handle different cases based on the position of the last slash
-    if (last_slash == NULL) {
-        // no slash found, return "."
-        free(temp_path);
-        return ".";
-    } else if (last_slash == temp_path) {
-        // the last slash is the first character
-        *(last_slash + 1) = '\0';
-    } else {
-        // truncate the path at the last slash
-        *last_slash = '\0';
-    }
-
-    // duplicate the result to return and free the temporary buffer
-    char *result = strdup(temp_path);
-    free(temp_path);
-    return result;
-}
-
 char* get_log_path(void) {
     pid_t pid = getpid();
     char *log_path = (char *)malloc(MAX_PATH_LEN * sizeof(char));
@@ -288,10 +465,6 @@ long long get_process_start_time(pid_t pid) {
     char path[MAX_BUFFER_SIZE];
     char buffer[MAX_BUFFER_SIZE];
     snprintf(path, sizeof(path), "/proc/%d/stat", pid);
-
-    if (actual_fopen == NULL) {
-        actual_fopen = dlsym(RTLD_NEXT, STRING_CONST_FOPEN_FUNCNAME);
-    }
 
     FILE *file = actual_fopen(path, "r");
     if (file == NULL) {
@@ -578,10 +751,6 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     char cmdline_path[MAX_PATH_LEN];
     snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%d/cmdline", pid);
 
-    if (actual_fopen == NULL) {
-        actual_fopen = dlsym(RTLD_NEXT, STRING_CONST_FOPEN_FUNCNAME);
-    }
-
     FILE *file = actual_fopen(cmdline_path, "r");
     if (file == NULL) {
         program_args_string = strdup(STRING_CONST_PROGRAM_ARGS_ERROR);
@@ -728,9 +897,6 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
 
     debug(4, "log_string='%s', strlen(log_string)=%ld\n", log_string, strlen(log_string));
 
-    if (actual_write == NULL) {
-        actual_write = dlsym(RTLD_NEXT, STRING_CONST_WRITE_FUNCNAME);
-    }
     // use actual_write
     ssize_t bytes_written;
     bytes_written = actual_write(logfd, log_string, strlen(log_string));
@@ -828,6 +994,21 @@ char *map_flags_to_strings(int flags) {
     return buffer;
 }
 
+bool starts_with(const char *str, const char *prefix) {
+  size_t len_prefix = strlen(prefix);
+  size_t len_str = strlen(str);
+  return len_str < len_prefix ? false : strncmp(str, prefix, len_prefix) == 0;
+}
+
+bool starts_with_any(const char *str, const char *prefixes[], size_t num_prefixes) {
+  for (size_t i = 0; i < num_prefixes; i++) {
+    if (starts_with(str, prefixes[i])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // intercepted calls
 FILE *fopen64(const char *pathname, const char *mode) {
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
@@ -837,9 +1018,25 @@ FILE *fopen64(const char *pathname, const char *mode) {
     log_call(__func__, 2, func_args);
     free_array_of_strings(func_args, 2);
 
-    // call the actual fopen function
-    FILE* (*actual_fopen64)() = dlsym(RTLD_NEXT, __func__);
-    return actual_fopen64(pathname, mode);
+    char *local_path;
+    // check if pathname begins with "remote" prefixes (https, http, ftp)
+    if (starts_with_any(pathname, URL_PREFIXES, NUM_URL_PREFIXES)) {
+        // pathname is an URL, download it with curl and open the downloaded file
+        // with actual_open; if download fails, set return value to XXX and
+        // errno accordingly
+        if (download(pathname, &local_path) == 0) {
+            debug(3, "download to '%s' successful\n", local_path);
+        } else {
+            // download failed, set error code and return -1
+            errno = ENOENT;
+            return NULL;
+        }
+    } else {
+        local_path = strdup(pathname);
+    }
+
+    // call the actual fopen64 function
+    return actual_fopen64(local_path, mode);
 }
 
 FILE *fopen(const char *pathname, const char *mode) {
@@ -850,9 +1047,25 @@ FILE *fopen(const char *pathname, const char *mode) {
     log_call(__func__, 2, func_args);
     free_array_of_strings(func_args, 2);
 
+    char *local_path;
+    // check if pathname begins with "remote" prefixes (https, http, ftp)
+    if (starts_with_any(pathname, URL_PREFIXES, NUM_URL_PREFIXES)) {
+        // pathname is an URL, download it with curl and open the downloaded file
+        // with actual_open; if download fails, set return value to XXX and
+        // errno accordingly
+        if (download(pathname, &local_path) == 0) {
+            debug(3, "download to '%s' successful\n", local_path);
+        } else {
+            // download failed, set error code and return -1
+            errno = ENOENT;
+            return NULL;
+        }
+    } else {
+        local_path = strdup(pathname);
+    }
+
     // call the actual fopen function
-    FILE* (*actual_fopen)() = dlsym(RTLD_NEXT, __func__);
-    return actual_fopen(pathname, mode);
+    return actual_fopen(local_path, mode);
 }
 
 FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
@@ -866,9 +1079,25 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
     log_call(__func__, num_func_args, func_args);
     free_array_of_strings(func_args, num_func_args);
 
+    char *local_path;
+    // check if pathname begins with "remote" prefixes (https, http, ftp)
+    if (starts_with_any(pathname, URL_PREFIXES, NUM_URL_PREFIXES)) {
+        // pathname is an URL, download it with curl and open the downloaded file
+        // with actual_open; if download fails, set return value to XXX and
+        // errno accordingly
+        if (download(pathname, &local_path) == 0) {
+            debug(3, "download to '%s' successful\n", local_path);
+        } else {
+            // download failed, set error code and return -1
+            errno = ENOENT;
+            return NULL;
+        }
+    } else {
+        local_path = strdup(pathname);
+    }
+
     // call the actual openat function
-    FILE* (*actual_fopenat)() = dlsym(RTLD_NEXT, __func__);
-    return actual_fopenat(dirfd, pathname, mode);
+    return actual_fopenat(dirfd, local_path, mode);
 }
 
 int open64(const char *pathname, int flags, mode_t mode) {
@@ -880,9 +1109,24 @@ int open64(const char *pathname, int flags, mode_t mode) {
     log_call(__func__, 3, func_args);
     free_array_of_strings(func_args, 3);
 
-    // call the actual open64 function
-    int (*actual_open64)() = dlsym(RTLD_NEXT, __func__);
-    return actual_open64(pathname, flags, mode);
+    char *local_path;
+    // check if pathname begins with "remote" prefixes (https, http, ftp)
+    if (starts_with_any(pathname, URL_PREFIXES, NUM_URL_PREFIXES)) {
+        // pathname is an URL, download it with curl and open the downloaded file
+        // with actual_open; if download fails, set return value to XXX and
+        // errno accordingly
+        if (download(pathname, &local_path) == 0) {
+            debug(3, "download to '%s' successful\n", local_path);
+        } else {
+            // download failed, set error code and return -1
+            errno = ENOENT;
+            return -1;
+        }
+    } else {
+        local_path = strdup(pathname);
+    }
+
+    return actual_open64(local_path, flags, mode);
 }
 
 int openat(int dirfd, const char *pathname, int flags, ...) {
@@ -907,17 +1151,36 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
     log_call(__func__, num_func_args, func_args);
     free_array_of_strings(func_args, num_func_args);
 
-    // call the actual openat function
-    int (*actual_openat)() = dlsym(RTLD_NEXT, __func__);
-    if (num_func_args == 4) {
-        return actual_openat(dirfd, pathname, flags, mode);
+    char *local_path;
+    // check if pathname begins with "remote" prefixes (https, http, ftp)
+    if (starts_with_any(pathname, URL_PREFIXES, NUM_URL_PREFIXES)) {
+        // pathname is an URL, download it with curl and open the downloaded file
+        // with actual_open; if download fails, set return value to XXX and
+        // errno accordingly
+        if (download(pathname, &local_path) == 0) {
+            debug(3, "download to '%s' successful\n", local_path);
+        } else {
+            // download failed, set error code and return -1
+            errno = ENOENT;
+            return -1;
+        }
     } else {
-        return actual_openat(dirfd, pathname, flags);
+        local_path = strdup(pathname);
+    }
+
+    // call the actual openat function
+    if (num_func_args == 4) {
+        return actual_openat(dirfd, local_path, flags, mode);
+    } else {
+        return actual_openat(dirfd, local_path, flags);
     }
 }
 
 int open(const char *pathname, int flags, ...) {
+    // print debug output to stderr
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
+
+    // log call to log file
     int num_func_args = (flags & O_CREAT ? 3 : 2);
     char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
@@ -937,11 +1200,26 @@ int open(const char *pathname, int flags, ...) {
     log_call(__func__, num_func_args, func_args);
     free_array_of_strings(func_args, num_func_args);
 
-    // call the actual open function
-    int (*actual_open)() = dlsym(RTLD_NEXT, __func__);
-    if (num_func_args == 3) {
-        return actual_open(pathname, flags, mode);
+    char *local_path;
+    // check if pathname begins with "remote" prefixes (https, http, ftp)
+    if (starts_with_any(pathname, URL_PREFIXES, NUM_URL_PREFIXES)) {
+        // pathname is an URL, download it with curl and open the downloaded file
+        // with actual_open; if download fails, set return value to XXX and
+        // errno accordingly
+        if (download(pathname, &local_path) == 0) {
+            debug(3, "download to '%s' successful\n", local_path);
+        } else {
+            // download failed, set error code and return -1
+            errno = ENOENT;
+            return -1;
+        }
     } else {
-        return actual_open(pathname, flags);
+        local_path = strdup(pathname);
+    }
+
+    if (num_func_args == 3) {
+      return actual_open(local_path, flags, mode);
+    } else {
+      return actual_open(local_path, flags);
     }
 }

@@ -4,7 +4,7 @@ ARCH := $(shell uname -m)
 # define the compiler and flags
 CC = gcc
 CFLAGS = -fPIC -shared -Wall -Wextra -Werror -g
-LDFLAGS = -ldl
+LDFLAGS = -ldl -lcurl
 
 # determine path to compiler set by CC
 PATH_TO_CC := $(shell command -v ${CC})
