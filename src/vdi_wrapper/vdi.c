@@ -33,6 +33,7 @@ const char* STRING_CONST_FCLOSE_FUNCNAME = "fclose";
 const char* STRING_CONST_FOPEN64_FUNCNAME = "fopen64";
 const char* STRING_CONST_FOPENAT_FUNCNAME = "fopenat";
 const char* STRING_CONST_FOPEN_FUNCNAME = "fopen";
+const char* STRING_CONST_FREOPEN_FUNCNAME = "freopen";
 const char* STRING_CONST_FWRITE_FUNCNAME = "fwrite";
 const char* STRING_CONST_OPEN64_FUNCNAME = "open64";
 const char* STRING_CONST_OPENAT_FUNCNAME = "openat";
@@ -82,6 +83,7 @@ int (*actual_fclose)() = NULL;
 FILE* (*actual_fopen64)() = NULL;
 FILE* (*actual_fopenat)() = NULL;
 FILE* (*actual_fopen)() = NULL;
+FILE* (*actual_freopen)() = NULL;
 size_t (*actual_fwrite)() = NULL;
 int (*actual_open64)() = NULL;
 int (*actual_openat)() = NULL;
@@ -132,6 +134,9 @@ void library_load(void) {
     }
     if (actual_fopen == NULL) {
       actual_fopen = dlsym(RTLD_NEXT, STRING_CONST_FOPEN_FUNCNAME);
+    }
+    if (actual_freopen == NULL) {
+      actual_freopen = dlsym(RTLD_NEXT, STRING_CONST_FREOPEN_FUNCNAME);
     }
     if (actual_fwrite == NULL) {
       actual_fwrite = dlsym(RTLD_NEXT, STRING_CONST_FWRITE_FUNCNAME);
@@ -1066,6 +1071,36 @@ FILE *fopen(const char *pathname, const char *mode) {
 
     // call the actual fopen function
     return actual_fopen(local_path, mode);
+}
+
+FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
+    debug(3, "'%s' called for '%s'\n", __func__, pathname);
+    char **func_args = create_array_of_strings(3, MAX_STRING_LEN);
+    snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
+    snprintf(func_args[1], MAX_STRING_LEN-1, "%s", mode);
+    snprintf(func_args[2], MAX_STRING_LEN-1, "%p", stream);
+    log_call(__func__, 3, func_args);
+    free_array_of_strings(func_args, 3);
+
+    char *local_path;
+    // check if pathname begins with "remote" prefixes (https, http, ftp)
+    if (starts_with_any(pathname, URL_PREFIXES, NUM_URL_PREFIXES)) {
+        // pathname is an URL, download it with curl and open the downloaded file
+        // with actual_open; if download fails, set return value to XXX and
+        // errno accordingly
+        if (download(pathname, &local_path) == 0) {
+            debug(3, "download to '%s' successful\n", local_path);
+        } else {
+            // download failed, set error code and return -1
+            errno = ENOENT;
+            return NULL;
+        }
+    } else {
+        local_path = strdup(pathname);
+    }
+
+    // call the actual fopen function
+    return actual_freopen(local_path, mode, stream);
 }
 
 FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
