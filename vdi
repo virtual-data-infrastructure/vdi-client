@@ -22,12 +22,12 @@ usage() {
   echo "    -h             - print usage for command"
   echo "    -v             - verbose output"
   echo "    --dry-run      - only print what command would do without actually performing the actions"
-  echo "  Arguments for command 'run':"
+  echo "  Arguments for command 'run': PROGRAM [PROGRAM_ARGS]"
   echo "    PROGRAM        - path to program to be run"
   echo "    PROGRAM_ARGS   - any arguments to the program to be run"
-  echo "  Arguments for command 'view':"
-  echo "    SUB_COMMAND    - one of 'create', 'list' and 'delete'"
-  echo "    VIEW_NAME      - for sub commands 'create' and 'delete'"
+  echo "  Arguments for command 'view': SUB_COMMAND [SUB_COMMAND_ARGS]"
+  echo "    SUB_COMMAND    - one of 'create', 'delete', 'files', 'geturl', 'list', 'remove' and 'upload'"
+  echo "    Run '${CMD_USAGE_NAME} view' for detailed usage information."
   exit 1
 }
 
@@ -46,9 +46,26 @@ command_usage() {
       echo "    PROGRAM_ARGS   - any arguments to the program to be run"
       ;;
     view)
-      echo "  Arguments for command 'view': SUB_COMMAND [VIEW_NAME]"
-      echo "    SUB_COMMAND    - one of 'create', 'list' and 'delete'"
-      echo "    VIEW_NAME      - for sub commands 'create' and 'delete'"
+      echo "  Arguments for command 'view': SUB_COMMAND [SUB_COMMAND_ARGS]"
+      echo "    SUB_COMMAND    - one of 'create', 'delete', 'files', 'geturl', 'list', 'remove' and 'upload'"
+      echo "    Arguments per SUBCOMMAND:"
+      echo "      create VIEW_NAME"
+      echo "        VIEW_NAME  - name of the view to be created"
+      echo "      delete VIEW_NAME"
+      echo "        VIEW_NAME  - name of the view to be deleted"
+      echo "      files VIEW_NAME"
+      echo "        VIEW_NAME  - name of the view to show the files it contains"
+      echo "      geturl VIEW_NAME FILE_NAME"
+      echo "        VIEW_NAME  - name of the view that contains file FILE_NAME"
+      echo "        FILE_NAME  - name of the file for which the URL to download should be shown"
+      echo "      list: lists all views"
+      echo "        no additional arguments"
+      echo "      remove VIEW_NAME FILE_NAME"
+      echo "        VIEW_NAME  - name of the view that contains file FILE_NAME"
+      echo "        FILE_NAME  - name of the file that should be removed from the view"
+      echo "      upload VIEW_NAME FILE_NAME"
+      echo "        VIEW_NAME  - name of the view"
+      echo "        FILE_NAME  - name of the file that should be uploaded to the view"
       ;;
   esac
   exit 1
