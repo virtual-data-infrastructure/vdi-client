@@ -10,20 +10,179 @@ else
   CMD_USAGE_NAME=${BASH_SOURCE}
 fi
 
+# define functions
 usage() {
   echo "Usage: ${CMD_USAGE_NAME} [commands] [common arguments] [cmd specific arguments]"
   echo "  Commands:"
   echo "    run            - run the user program with the given user arguments"
+  echo "    view           - create, list and delete views"
   echo "  Common arguments:"
-  echo "    -h             - print this usage information"
+  echo "    --base-url     - base url for VDI server to be accessed"
+  echo "    --config       - full path to config file [default: \${HOME}/.vdi/config]"
+  echo "    -h             - print usage for command"
   echo "    -v             - verbose output"
   echo "    --dry-run      - only print what command would do without actually performing the actions"
-  echo "  Arguments for command 'run':"
-  echo "    program        - path to program to be run"
-  echo "    program_args   - any arguments to the program to be run"
+  echo "  Arguments for command 'run': PROGRAM [PROGRAM_ARGS]"
+  echo "    PROGRAM        - path to program to be run"
+  echo "    PROGRAM_ARGS   - any arguments to the program to be run"
+  echo "  Arguments for command 'view': SUB_COMMAND [SUB_COMMAND_ARGS]"
+  echo "    SUB_COMMAND    - one of 'create', 'delete', 'files', 'geturl', 'list', 'remove' and 'upload'"
+  echo "    Run '${CMD_USAGE_NAME} view' for detailed usage information."
   exit 1
 }
 
+command_usage() {
+  echo "Usage: ${CMD_USAGE_NAME} $1 [common arguments] [cmd specific arguments]"
+  echo "  Common arguments:"
+  echo "    --base-url     - base url for VDI server to be accessed"
+  echo "    --config       - full path to config file [default: \${HOME}/.vdi/config]"
+  echo "    -h             - print usage for command"
+  echo "    -v             - verbose output"
+  echo "    --dry-run      - only print what command would do without actually performing the actions"
+  case "$1" in
+    run)
+      echo "  Arguments for command 'run': PROGRAM [PROGRAM_ARGS]"
+      echo "    PROGRAM        - path to program to be run"
+      echo "    PROGRAM_ARGS   - any arguments to the program to be run"
+      ;;
+    view)
+      echo "  Arguments for command 'view': SUB_COMMAND [SUB_COMMAND_ARGS]"
+      echo "    SUB_COMMAND    - one of 'create', 'delete', 'files', 'geturl', 'list', 'remove' and 'upload'"
+      echo "    Arguments per SUBCOMMAND:"
+      echo "      create VIEW_NAME"
+      echo "        VIEW_NAME  - name of the view to be created"
+      echo "      delete VIEW_NAME"
+      echo "        VIEW_NAME  - name of the view to be deleted"
+      echo "      files VIEW_NAME"
+      echo "        VIEW_NAME  - name of the view to show the files it contains"
+      echo "      geturl VIEW_NAME FILE_NAME"
+      echo "        VIEW_NAME  - name of the view that contains file FILE_NAME"
+      echo "        FILE_NAME  - name of the file for which the URL to download should be shown"
+      echo "      list: lists all views"
+      echo "        no additional arguments"
+      echo "      remove VIEW_NAME FILE_NAME"
+      echo "        VIEW_NAME  - name of the view that contains file FILE_NAME"
+      echo "        FILE_NAME  - name of the file that should be removed from the view"
+      echo "      upload VIEW_NAME FILE_NAME"
+      echo "        VIEW_NAME  - name of the view"
+      echo "        FILE_NAME  - name of the file that should be uploaded to the view"
+      ;;
+  esac
+  exit 1
+}
+
+create_view() {
+  local data=$(jq -n --arg name "${view_name}" '{name: $name}')
+  response=$(curl -s -X POST "${BASE_URL}/views" \
+    -H "Content-Type: application/json" \
+    -d "${data}")
+  if [ $? -ne 0 ]; then
+    echo "Failed to connect to backend server."
+    exit 1
+  fi
+  echo "Created view:"
+  echo "${response}" | jq -r '"  \(.id) \(.name)"'
+}
+
+list_views() {
+  response=$(curl -s "${BASE_URL}/views")
+  if [ $? -ne 0 ]; then
+    echo "Failed to connect to backend server."
+    exit 1
+  fi
+  echo "Views:"
+  echo "${response}" | jq -r '.[] | "  \(.id) \(.name)"'
+
+}
+
+get_view_id_by_name() {
+  local name=$1
+  response=$(curl -s "${BASE_URL}/views")
+  if [ $? -ne 0 ]; then
+    echo "Failed to connect to backend server."
+    exit 1
+  fi
+  view_id=$(echo "${response}" | jq -r --arg name "${name}" '.[] | select(.name == $name) | .id')
+  echo "${view_id}"
+}
+
+delete_view_by_id() {
+  local view_id=$1
+
+  if [ -z "${view_id}" ]; then
+    echo "View with the name '${view_name}' not found."
+    exit 1
+  fi
+
+  # Send a DELETE request to delete the view
+  response=$(curl -s -X DELETE "${BASE_URL}/views/${view_id}")
+
+  message=$(echo "${response}" | jq -r '.message')
+  echo "${message}"
+}
+
+get_files_for_view_by_name() {
+  local name=$1
+
+  response=$(curl -s "${BASE_URL}/views/${name}/files")
+  if [ $? -ne 0 ]; then
+    echo "Failed to connect to backend server."
+    exit 1
+  fi
+  if echo "${response}" | jq empty > /dev/null 2>&1; then
+    if [[ "${response}" == "[]" || "${response}" == "{}" ]]; then
+      echo "The view '${name}' is empty."
+    else
+      echo "Files in view '${name}':"
+      echo "${response}" | jq -r '.files[] | "  \(.id) \(.filename)"'
+    fi
+  else
+    echo "Failed to retrieve or parse the view contents."
+  fi
+}
+
+delete_file_in_view_by_ids() {
+  local view_id=$1
+  local file_id=$2
+
+  if [ -z "${view_id}" ]; then
+    echo "View with the name '${view_name}' not found."
+    exit 1
+  fi
+
+  # Send a DELETE request to delete the view
+  response=$(curl -s -X DELETE "${BASE_URL}/views/${view_id}/${file_id}")
+
+  message=$(echo "${response}" | jq -r '.message')
+  echo "${message}"
+}
+
+view_exists() {
+  local name=$1
+  view_id=$(get_view_id_by_name "${view_name}")
+  if [ -z "${view_id}" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+upload_file() {
+  local view_name=$1
+  local view_id=$2
+  local file_path=$3
+
+  # Send a POST request to upload the file
+  response=$(curl -s -X POST ${BASE_URL}/data/${view_name} \
+    -F "viewId=${view_id}" \
+    -F "files=@$file_path")
+
+  # Extract and print the message from the response
+  message=$(echo "$response" | jq -r '.message')
+  echo "Response Message: $message"
+}
+
+# main script
 if [ "$#" -lt 1 ]; then
   usage
 fi
@@ -32,14 +191,21 @@ fi
 CMD=""
 case "$1" in
   run) CMD="run"; shift ;;
+  view) CMD="view"; shift ;;
   *) usage ;;
 esac
 
 # common arguments
 VERBOSE=0
 DRY_RUN=0
+CONFIG_FILE_DEFAULT=${HOME}/.vdi/config
+CONFIG_FILE=${CONFIG_FILE_DEFAULT}
+BASE_URL=
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
+    --base-url) BASE_URL=$2; shift 2 ;;
+    --config) CONFIG_FILE=$2; shift 2 ;;
+    -h) command_usage ${CMD} ;;
     -v) VERBOSE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     *) break ;;
@@ -48,18 +214,105 @@ done
 
 [[ ${VERBOSE} -eq 1 ]] && echo "remaining args: '${@}'"
 
+if [ -f "${CONFIG_FILE}" ]; then
+  source "${CONFIG_FILE}"
+fi
+
 # command specific arguments
-while [[ "$#" -gt 0 ]]; do
-  case "${CMD}" in
-    run)
-      # run the command (should be at least one more word because of the cond expr in while)
-      if [ "${DRY_RUN}" -eq 0 ]; then
-        [[ ${VERBOSE} -eq 1 ]] && echo "run 'LD_PRELOAD=${CMD_DIR}/../lib64/libvdi.so \"${@}\"'"
-        LD_PRELOAD=${CMD_DIR}/../lib64/libvdi.so "${@}"
-      else
-        echo "dry-run: run '${@}'"
-      fi
-      break
-      ;;
-  esac
-done
+# run
+# view
+case "${CMD}" in
+  run)
+    # run the command (should be at least one more word because of the cond expr in while)
+    if [ "${DRY_RUN}" -eq 0 ]; then
+      [[ ${VERBOSE} -eq 1 ]] && echo "run 'LD_PRELOAD=${CMD_DIR}/../lib64/libvdi.so \"${@}\"'"
+      LD_PRELOAD=${CMD_DIR}/../lib64/libvdi.so "${@}"
+    else
+      echo "dry-run: run '${@}'"
+    fi
+    ;;
+  view)
+    # process arguments/sub commands to 'view' command
+    if [ -z "${BASE_URL}" ]; then
+      echo "\$BASE_URL is not set. Please, provide it via '--base-url' option"
+      echo "or set it in config file (default config file: '${CONFIG_FILE_DEFAULT}'"
+      exit 1
+    fi
+    case "$1" in
+      create)
+        if [ $# -lt 2 ]; then
+          echo "missing name of view to be created"
+          command_usage ${CMD}
+        fi
+        view_name=$2
+        create_view
+        ;;
+      delete)
+        if [ $# -lt 2 ]; then
+          echo "missing name of view to be deleted"
+          command_usage ${CMD}
+        fi
+        view_name=$2
+        view_id=$(get_view_id_by_name "${view_name}")
+        delete_view_by_id "${view_id}"
+        ;;
+      files)
+        if [ $# -lt 2 ]; then
+          echo "missing name of view for which files should be listed"
+          command_usage ${CMD}
+        fi
+        view_name=$2
+        get_files_for_view_by_name "${view_name}"
+        ;;
+      geturl)
+        if [ $# -lt 3 ]; then
+          echo "missing view name and/or file to obtain download URL"
+        fi
+        # TODO check if view and file in there exist
+        view_name=$2
+        file_name=$3
+        echo "${BASE_URL}/download/${view_name}/${file_name}"
+        ;;
+      list)
+        list_views
+        ;;
+      remove)
+        if [ $# -lt 3 ]; then
+          echo "missing view name and/or path to file to be removed"
+          command_usage ${CMD}
+        fi
+        view_name=$2
+        # check if view exists
+        if view_exists "${view_name}"; then
+          echo "view '${view_name}' does not exist"
+          command_usage ${CMD}
+        fi
+        remove_id=$3
+        view_id=$(get_view_id_by_name "${view_name}")
+        delete_file_in_view_by_ids "${view_id}" "${remove_id}"
+        ;;
+      upload)
+        if [ $# -lt 3 ]; then
+          echo "missing view name and/or path to file to be uploaded"
+          command_usage ${CMD}
+        fi
+        view_name=$2
+        # check if view exists
+        if view_exists "${view_name}"; then
+          echo "view '${view_name}' does not exist"
+          command_usage ${CMD}
+        fi
+        upload_path=$3
+        # check if upload_path exists and is a file
+        if [ ! -f "${upload_path}" ]; then
+          echo "file '${upload_path}' does not exist or is not a file"
+          command_usage ${CMD}
+        fi
+        view_id=$(get_view_id_by_name "${view_name}")
+        upload_file "${view_name}" "${view_id}" "${upload_path}"
+        ;;
+      *)
+        command_usage ${CMD}
+        ;;
+    esac
+esac
