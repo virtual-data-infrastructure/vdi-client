@@ -13,7 +13,10 @@
             "enabled": true,
             "line_length": 120,
             "heading_line_length": 120,
-            "code_block_line_length": 120
+            "code_blocks": false,
+            "headings": true,
+            "strict": true,
+            "stern": true
         },
         "no-trailing-spaces": {
             "enabled": true

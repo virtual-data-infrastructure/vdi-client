@@ -49,7 +49,7 @@ jobs:
 
     - name: Lint markdown files
       run: |
-        pymarkdown -c .pymarkdown.json scan *.md
+        pymarkdown -c .pymarkdown.json scan README.md src/vdi_wrapper/README.md
 
   test:
     runs-on: ubuntu-24.04
