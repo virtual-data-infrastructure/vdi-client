@@ -15,7 +15,6 @@ class TestVersion:
 
     def test_version_string_is_not_empty(self) -> None:
         assert __version__ != ""
-        assert __version__ != "unknown" or True  # may be "unknown" if not installed
 
     def test_version_flag_prints_version(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(SystemExit) as exc_info:

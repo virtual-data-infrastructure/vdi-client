@@ -5,6 +5,7 @@ VDI client - client tools for the virtual data infrastructure.
 
 This module provides initialization logic for the package.
 """
+
 try:
     from importlib.metadata import version
 
