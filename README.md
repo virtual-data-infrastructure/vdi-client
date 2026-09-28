@@ -140,6 +140,7 @@ pytest
 ruff check
 ruff format --check
 mypy
+pyright
 codespell
 pymarkdown -c .pymarkdown.json scan README.md src/vdi_wrapper/README.md
 ```

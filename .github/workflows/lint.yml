@@ -43,6 +43,10 @@ jobs:
       run: |
         mypy
 
+    - name: Type check with pyright
+      run: |
+        pyright
+
     - name: Spell check with codespell
       run: |
         codespell
