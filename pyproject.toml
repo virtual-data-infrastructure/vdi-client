@@ -49,7 +49,7 @@ dev = [
 
     # Type checking
     "mypy==1.11.1",               # Static type checker (primary)
-    "pyright==1.1.407",           # Static type checker (secondary validation)
+    "pyright==1.1.414",           # Static type checker (secondary validation)
 
     # Code quality
     "ruff==0.14.5",               # Fast Python linter (replaces flake8, isort, pylint, etc.)
