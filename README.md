@@ -108,3 +108,44 @@ created PNG-file 'outputs/no.json_map.png'
 ## Additional information about configuration, log file format and debug levels
 
 See [wrapper README](src/vdi_wrapper/README.md) for detailed information.
+
+## Development
+
+### Setting up a development environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+### Running the CLI
+
+```bash
+vdi --version          # print version
+vdi                    # print help
+vdi run                # run subcommand (not yet implemented)
+vdi view               # view subcommand (not yet implemented)
+```
+
+### Running tests
+
+```bash
+pytest
+```
+
+### Linting and type checking
+
+```bash
+ruff check
+ruff format --check
+mypy
+codespell
+pymarkdown -c .pymarkdown.json scan README.md src/vdi_wrapper/README.md
+```
+
+### Building a wheel
+
+```bash
+python -m build
+```
