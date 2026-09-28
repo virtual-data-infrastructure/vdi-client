@@ -1,6 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2025 VDI contributors
+"""
+Example script for the VDI client.
+
+Reads a GeoJSON file and produces a PNG map plot using geopandas and matplotlib.
+Intended to be run via the VDI client wrapper (``vdi run python examples/map_plot.py``).
+"""
+
+# Standard library imports
 import argparse
 import os
 
+# Third-party imports
 import geopandas as gpd
 import matplotlib.pyplot as plt
 
