@@ -69,3 +69,7 @@ dist/
 *.egg-info/
 *.whl
 __pycache__/
+
+# Pytest
+.coverage
+coverage.xml
