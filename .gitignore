@@ -57,3 +57,19 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Python virtual environments
+venv/
+.venv/
+env/
+
+# Python packaging artifacts
+build/
+dist/
+*.egg-info/
+*.whl
+__pycache__/
+
+# Pytest
+.coverage
+coverage.xml

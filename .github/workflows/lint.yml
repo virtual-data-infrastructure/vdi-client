@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2025-2026 VDI contributors
+#
+# VDI client - client tools for the virtual data infrastructure.
+#
+# GitHub Actions workflow for linting and code quality checks.
+# Runs on every push and pull request to ensure code standards.
+
+name: Lint & Test
+
+on: [push, pull_request, workflow_dispatch]
+
+# Declare default permissions as read only.
+permissions: read-all
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: Set up Python
+      uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies & vdi-client
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Lint with ruff
+      run: |
+        ruff check
+
+    - name: Format check with ruff
+      run: |
+        ruff format --check
+
+    - name: Type check with mypy
+      run: |
+        mypy
+
+    - name: Type check with pyright
+      run: |
+        pyright
+
+    - name: Spell check with codespell
+      run: |
+        codespell
+
+    - name: Lint markdown files
+      run: |
+        pymarkdown -c .pymarkdown.json scan README.md src/vdi_wrapper/README.md
+
+  test:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: Set up Python
+      uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies & vdi-client
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Run tests with pytest
+      run: |
+        pytest

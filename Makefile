@@ -25,7 +25,7 @@ $(BIN_DIR)/$(SCRIPT): $(SCRIPT)
 install-library:
 	$(MAKE) -C $(VDI_SRCS_DIR) install
 
-# clean the buld artifacts in the subdirectory and remove the installed files
+# clean the build artifacts in the subdirectory and remove the installed files
 clean:
 	$(MAKE) -C $(VDI_SRCS_DIR) clean
 
