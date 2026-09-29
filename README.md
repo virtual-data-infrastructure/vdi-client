@@ -122,10 +122,12 @@ pip install -e ".[dev]"
 ### Running the CLI
 
 ```bash
-vdi --version          # print version
-vdi                    # print help
-vdi run                # run subcommand (not yet implemented)
-vdi view               # view subcommand (not yet implemented)
+vdi --version                              # print version
+vdi                                        # print help
+vdi run --dry-run ls -la                   # dry-run: show what would be executed
+vdi run --lib /path/to/libvdi.so python    # run a program with VDI extensions
+vdi view --base-url http://localhost list  # list all views on the server
+vdi view --base-url http://localhost create myview  # create a new view
 ```
 
 ### Running tests
