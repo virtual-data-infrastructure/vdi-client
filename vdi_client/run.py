@@ -24,7 +24,8 @@ def resolve_lib_path(lib_override: str | None = None) -> Path:
 
     1. Explicit ``lib_override`` (from ``--lib`` flag).
     2. ``VDI_LIB_PATH`` environment variable.
-    3. ``<package_dir>/../lib64/libvdi.so`` (matches the bash script layout).
+    3. ``<package_dir>/lib/libvdi.so`` (wheel-bundled location).
+    4. ``<package_dir>/../lib64/libvdi.so`` (development layout, matches the bash script).
 
     Args:
         lib_override: Optional explicit path passed on the command line.
@@ -42,9 +43,14 @@ def resolve_lib_path(lib_override: str | None = None) -> Path:
         if env_path:
             candidate = Path(env_path)
         else:
-            # <package_dir>/../lib64/libvdi.so
             package_dir = Path(__file__).resolve().parent
-            candidate = package_dir / ".." / "lib64" / "libvdi.so"
+            # Try wheel-bundled location first, then development layout
+            wheel_candidate = package_dir / "lib" / "libvdi.so"
+            dev_candidate = package_dir / ".." / "lib64" / "libvdi.so"
+            if wheel_candidate.is_file():
+                candidate = wheel_candidate
+            else:
+                candidate = dev_candidate
 
     candidate = candidate.resolve()
     if not candidate.is_file():

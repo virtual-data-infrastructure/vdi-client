@@ -4,7 +4,15 @@ ARCH := $(shell uname -m)
 # define the compiler and flags
 CC = gcc
 CFLAGS = -fPIC -shared -Wall -Wextra -Werror -g
-LDFLAGS = -ldl -lcurl
+# embed RUNPATH so libvdi.so finds its EESSI dependencies (libcurl, libdl)
+# without relying on LD_LIBRARY_PATH (which must not be used with EESSI)
+LDFLAGS = -ldl -lcurl -Wl,-rpath,$(EESSI_EPREFIX)/lib -Wl,--enable-new-dtags
+
+# expected RUNPATH value embedded in the shared library
+EXPECTED_RUNPATH = $(EESSI_EPREFIX)/lib
+
+# tool to inspect ELF dynamic section
+READELF = readelf
 
 # determine path to compiler set by CC
 PATH_TO_CC := $(shell command -v ${CC})
@@ -23,7 +31,7 @@ SRCS = vdi.c
 OBJ = $(BUILD_DIR)/$(TARGET)
 
 # compile target
-compile: is_eessi_initialized compiler_from_compat_layer $(BUILD_DIR) $(OBJ)
+compile: is_eessi_initialized compiler_from_compat_layer clean_environment $(BUILD_DIR) $(OBJ)
 
 # function to check if EESSI is initialized
 is_eessi_initialized:
@@ -44,6 +52,30 @@ ifneq ($(findstring ${EESSI_EPREFIX},$(PATH_TO_CC)),${EESSI_EPREFIX})
 	$(error $(COMPILER_FROM_COMPAT_LAYER_MSG))
 endif
 
+# function to check that the environment is clean for building against EESSI
+# LD_LIBRARY_PATH must not be set (EESSI uses RPATH/RUNPATH, not LD_LIBRARY_PATH)
+# LIBRARY_PATH may only contain paths under ${EESSI_EPREFIX}
+define LD_LIBRARY_PATH_SET_MSG
+LD_LIBRARY_PATH is set to '$(LD_LIBRARY_PATH)'.
+EESSI does not use LD_LIBRARY_PATH; setting it may cause library conflicts.
+Please unset LD_LIBRARY_PATH and rerun make.
+endef
+
+define LIBRARY_PATH_NOT_CLEAN_MSG
+LIBRARY_PATH contains paths outside of the EESSI compat layer:
+  LIBRARY_PATH='$(LIBRARY_PATH)'
+Only paths under '${EESSI_EPREFIX}' are allowed.
+Please clean LIBRARY_PATH and rerun make.
+endef
+
+clean_environment:
+ifdef LD_LIBRARY_PATH
+	$(error $(LD_LIBRARY_PATH_SET_MSG))
+endif
+ifneq ($(LIBRARY_PATH),)
+$(foreach p,$(filter-out $(EESSI_EPREFIX)%,$(subst :, ,$(LIBRARY_PATH))),$(error $(LIBRARY_PATH_NOT_CLEAN_MSG)))
+endif
+
 # ensure the build directory exists
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -52,8 +84,25 @@ $(BUILD_DIR):
 $(OBJ): $(SRCS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# verify that the built shared library has the expected RUNPATH entry
+# uses readelf -d to inspect the ELF dynamic section and checks for a
+# RUNPATH (DT_RUNPATH) entry matching $(EXPECTED_RUNPATH)
+define RUNPATH_MISSING_MSG
+The shared library '$(OBJ)' does not contain a RUNPATH entry matching '$(EXPECTED_RUNPATH)'.
+This means libvdi.so will not be able to find its EESSI dependencies at runtime
+without LD_LIBRARY_PATH, which must not be used with EESSI.
+Run 'readelf -d $(OBJ)' to inspect the dynamic section.
+endef
+
+verify_rpath: $(OBJ)
+	@if ! $(READELF) -d $(OBJ) | grep -q 'RUNPATH.*$(EXPECTED_RUNPATH)'; then \
+		echo "Error: $(RUNPATH_MISSING_MSG)"; \
+		exit 1; \
+	fi
+	@echo "Verified: RUNPATH contains '$(EXPECTED_RUNPATH)' in $(OBJ)"
+
 # install the shared library to the installation directory
-install: compile
+install: compile verify_rpath
 	mkdir -p $(INSTALL_DIR)
 	cp $(OBJ) $(INSTALL_DIR)/
 
@@ -72,4 +121,6 @@ clean-install:
 clean-all: clean clean-install
 
 # phony targets
-.PHONY: all build clean install $(BUILD_DIR) clean-install clean-all is_eessi_initialized compiler_from_compat_layer
+.PHONY: all build clean install $(BUILD_DIR) clean-install clean-all \
+        is_eessi_initialized compiler_from_compat_layer clean_environment \
+        verify_rpath

@@ -2,6 +2,9 @@
 bin/
 lib64/
 
+# bundled shared library (built by make build-wheel)
+vdi_client/lib/
+
 # build directories
 src/vdi_wrapper/build/
 
