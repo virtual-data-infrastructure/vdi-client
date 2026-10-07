@@ -87,16 +87,10 @@ $(OBJ): $(SRCS)
 # verify that the built shared library has the expected RUNPATH entry
 # uses readelf -d to inspect the ELF dynamic section and checks for a
 # RUNPATH (DT_RUNPATH) entry matching $(EXPECTED_RUNPATH)
-define RUNPATH_MISSING_MSG
-The shared library '$(OBJ)' does not contain a RUNPATH entry matching '$(EXPECTED_RUNPATH)'.
-This means libvdi.so will not be able to find its EESSI dependencies at runtime
-without LD_LIBRARY_PATH, which must not be used with EESSI.
-Run 'readelf -d $(OBJ)' to inspect the dynamic section.
-endef
-
 verify_rpath: $(OBJ)
 	@if ! $(READELF) -d $(OBJ) | grep -q 'RUNPATH.*$(EXPECTED_RUNPATH)'; then \
-		echo "Error: $(RUNPATH_MISSING_MSG)"; \
+		echo "Error: $(OBJ) does not contain a RUNPATH entry matching $(EXPECTED_RUNPATH)."; \
+		echo "Run 'readelf -d $(OBJ)' to inspect the dynamic section."; \
 		exit 1; \
 	fi
 	@echo "Verified: RUNPATH contains '$(EXPECTED_RUNPATH)' in $(OBJ)"
