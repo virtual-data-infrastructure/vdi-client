@@ -39,6 +39,7 @@ Usage: vdi [commands] [common arguments] [cmd specific arguments]
   Commands:
     run            - run the user program with the given user arguments
     view           - create, list and delete views
+    log            - list, show and clean up VDI log files
   Common arguments:
     --base-url     - base url for VDI server to be accessed
     --config       - full path to config file [default: ${HOME}/.vdi/config]
@@ -108,6 +109,68 @@ created PNG-file 'outputs/no.json_map.png'
 ## Additional information about configuration, log file format and debug levels
 
 See [wrapper README](src/vdi_wrapper/README.md) for detailed information.
+
+## Managing log files
+
+The `vdi log` subcommand provides tools to list, inspect and clean up the log
+files created by `libvdi.so` during `vdi run` sessions. Log files are stored in
+the directory defined by `$VDI_LOG_DIR` (default: `~/.vdi/logs/`) and use the
+naming convention `vdi_log.<pid>.log` (the prefix can be changed via
+`$VDI_LOG_FILE_PREFIX`).
+
+### Listing log files
+
+```bash
+vdi log list
+```
+
+By default, this prints a short listing (PID and file name). Use `--long` for
+additional details (size, modification time and program name):
+
+```bash
+vdi log list --long
+```
+
+Sort options (`--sort`) and reverse (`-r`/`--reverse`) are available:
+
+```bash
+vdi log list --sort size --reverse
+vdi log list --sort date
+vdi log list --sort program
+```
+
+### Showing a log file
+
+```bash
+vdi log show <pid>
+```
+
+Prints the contents of `vdi_log.<pid>.log` to stdout.
+
+### Cleaning up log files
+
+Remove all log files:
+
+```bash
+vdi log clean
+```
+
+Remove a specific log file by PID:
+
+```bash
+vdi log clean --pid <pid>
+```
+
+Both commands support `--dry-run` to preview what would be removed.
+
+### Overriding the log directory and prefix
+
+All `vdi log` subcommands accept `--log-dir` and `--log-prefix` to override the
+defaults (or the corresponding environment variables) for a single invocation:
+
+```bash
+vdi log --log-dir /tmp/my-logs --log-prefix 'vdi_log_user.' list
+```
 
 ## Development
 

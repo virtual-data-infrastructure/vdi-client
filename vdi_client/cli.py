@@ -3,11 +3,12 @@
 """
 VDI client - command-line interface.
 
-The CLI provides two subcommands:
+The CLI provides three subcommands:
 
 - ``run``  : run a user program with VDI extensions (``LD_PRELOAD``)
 - ``view`` : create, list, delete, inspect, upload to and remove files
              from views on a VDI server
+- ``log``  : list, inspect and clean up VDI log files
 
 Common arguments (accepted before the subcommand-specific arguments):
 
@@ -27,6 +28,7 @@ from typing import Any
 
 from vdi_client import __version__
 from vdi_client.config import DEFAULT_CONFIG_PATH, load_config, resolve_base_url
+from vdi_client.log import clean_logs, list_logs, show_log
 from vdi_client.run import run as run_command
 from vdi_client.view import (
     create_view,
@@ -158,6 +160,101 @@ def create_parser() -> argparse.ArgumentParser:
     upload_p.add_argument("view_name", help="name of the view")
     upload_p.add_argument("file_name", help="path to the file that should be uploaded to the view")
 
+    # --- log subcommand ---
+    log_parser = subparsers.add_parser(
+        "log",
+        help="list, show and clean up VDI log files",
+        description="List, show and clean up VDI log files.",
+    )
+    _add_common_args(log_parser)
+    log_parser.add_argument(
+        "--log-dir",
+        dest="log_dir",
+        default=None,
+        help="directory containing log files [default: $VDI_LOG_DIR or ~/.vdi/logs/]",
+    )
+    log_parser.add_argument(
+        "--log-prefix",
+        dest="log_prefix",
+        default=None,
+        help="prefix for log file names [default: $VDI_LOG_FILE_PREFIX or 'vdi_log.']",
+    )
+    log_sub = log_parser.add_subparsers(dest="subcommand")
+
+    log_list_p = log_sub.add_parser("list", help="list log files")
+    _add_common_args(log_list_p, suppress_defaults=True)
+    log_list_p.add_argument(
+        "--log-dir",
+        dest="log_dir",
+        default=argparse.SUPPRESS,
+        help="directory containing log files [default: $VDI_LOG_DIR or ~/.vdi/logs/]",
+    )
+    log_list_p.add_argument(
+        "--log-prefix",
+        dest="log_prefix",
+        default=argparse.SUPPRESS,
+        help="prefix for log file names [default: $VDI_LOG_FILE_PREFIX or 'vdi_log.']",
+    )
+    log_list_p.add_argument(
+        "--sort",
+        dest="sort_key",
+        choices=["pid", "date", "size", "program"],
+        default="pid",
+        help="sort log files by the given key [default: pid]",
+    )
+    log_list_p.add_argument(
+        "-r",
+        "--reverse",
+        dest="reverse",
+        action="store_true",
+        default=False,
+        help="reverse sort order",
+    )
+    log_list_p.add_argument(
+        "--long",
+        dest="long_format",
+        action="store_true",
+        default=False,
+        help="show size, modification time and program name",
+    )
+
+    log_show_p = log_sub.add_parser("show", help="print the contents of a log file")
+    _add_common_args(log_show_p, suppress_defaults=True)
+    log_show_p.add_argument(
+        "--log-dir",
+        dest="log_dir",
+        default=argparse.SUPPRESS,
+        help="directory containing log files [default: $VDI_LOG_DIR or ~/.vdi/logs/]",
+    )
+    log_show_p.add_argument(
+        "--log-prefix",
+        dest="log_prefix",
+        default=argparse.SUPPRESS,
+        help="prefix for log file names [default: $VDI_LOG_FILE_PREFIX or 'vdi_log.']",
+    )
+    log_show_p.add_argument("pid", type=int, help="process ID of the log file to show")
+
+    log_clean_p = log_sub.add_parser("clean", help="remove log files")
+    _add_common_args(log_clean_p, suppress_defaults=True)
+    log_clean_p.add_argument(
+        "--log-dir",
+        dest="log_dir",
+        default=argparse.SUPPRESS,
+        help="directory containing log files [default: $VDI_LOG_DIR or ~/.vdi/logs/]",
+    )
+    log_clean_p.add_argument(
+        "--log-prefix",
+        dest="log_prefix",
+        default=argparse.SUPPRESS,
+        help="prefix for log file names [default: $VDI_LOG_FILE_PREFIX or 'vdi_log.']",
+    )
+    log_clean_p.add_argument(
+        "--pid",
+        type=int,
+        default=None,
+        help="remove only the log file for this PID (default: remove all)",
+    )
+
     return parser
 
 
@@ -219,6 +316,47 @@ def _handle_view(args: argparse.Namespace) -> int:
     return 1
 
 
+def _handle_log(args: argparse.Namespace) -> int:
+    """Dispatch the ``log`` subcommand and its sub-subcommands."""
+    log_dir = getattr(args, "log_dir", None)
+    log_prefix = getattr(args, "log_prefix", None)
+
+    if args.subcommand is None:
+        print("Error: no log subcommand specified.", file=sys.stderr)
+        print("Subcommands: list, show, clean", file=sys.stderr)
+        return 1
+
+    if args.subcommand == "list":
+        return list_logs(
+            log_dir_override=log_dir,
+            log_prefix_override=log_prefix,
+            sort_key=args.sort_key,
+            reverse=args.reverse,
+            long_format=args.long_format,
+            dry_run=args.dry_run,
+            verbose=args.verbose,
+        )
+    elif args.subcommand == "show":
+        return show_log(
+            args.pid,
+            log_dir_override=log_dir,
+            log_prefix_override=log_prefix,
+            dry_run=args.dry_run,
+            verbose=args.verbose,
+        )
+    elif args.subcommand == "clean":
+        return clean_logs(
+            pid=args.pid,
+            log_dir_override=log_dir,
+            log_prefix_override=log_prefix,
+            dry_run=args.dry_run,
+            verbose=args.verbose,
+        )
+
+    print(f"Error: unknown log subcommand '{args.subcommand}'.", file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the VDI CLI.
 
@@ -240,6 +378,8 @@ def main(argv: list[str] | None = None) -> int:
         return _handle_run(args)
     elif args.command == "view":
         return _handle_view(args)
+    elif args.command == "log":
+        return _handle_log(args)
 
     parser.print_help()
     return 1
