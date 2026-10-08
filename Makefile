@@ -78,7 +78,7 @@ clean:
 
 clean-install:
 	$(MAKE) -C $(VDI_SRCS_DIR) clean-install
-	rm $(BIN_DIR)/$(SCRIPT)
+	rm -f $(BIN_DIR)/$(SCRIPT)
 
 clean-wheel:
 	rm -rf $(PKG_LIB_DIR)
