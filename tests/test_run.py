@@ -41,6 +41,30 @@ class TestResolveLibPath:
         with pytest.raises(FileNotFoundError, match="VDI shared library not found"):
             resolve_lib_path(str(tmp_path / "nonexistent.so"))
 
+    def test_wheel_bundled_lib_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When libvdi.so exists in <package_dir>/lib/, it is used."""
+        package_dir = Path(__file__).resolve().parent.parent / "vdi_client"
+        lib_dir = package_dir / "lib"
+        lib = lib_dir / "libvdi.so"
+        lib_dir.mkdir(parents=True, exist_ok=True)
+        lib.write_text("dummy")
+        monkeypatch.delenv("VDI_LIB_PATH", raising=False)
+        try:
+            result = resolve_lib_path(None)
+            assert result == lib.resolve()
+        finally:
+            lib.unlink()
+            lib_dir.rmdir()
+
+    def test_dev_layout_used_when_wheel_lib_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When no wheel-bundled lib exists, the dev layout path is the candidate."""
+        monkeypatch.delenv("VDI_LIB_PATH", raising=False)
+        package_dir = Path(__file__).resolve().parent.parent / "vdi_client"
+        wheel_lib = package_dir / "lib" / "libvdi.so"
+        assert not wheel_lib.exists()
+        with pytest.raises(FileNotFoundError, match="VDI shared library not found"):
+            resolve_lib_path(None)
+
 
 class TestRun:
     """Tests for run()."""

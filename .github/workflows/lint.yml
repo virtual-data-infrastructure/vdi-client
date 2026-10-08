@@ -8,7 +8,7 @@
 
 name: Lint & Test
 
-on: [push, pull_request, workflow_dispatch]
+on: [push, workflow_dispatch]
 
 # Declare default permissions as read only.
 permissions: read-all

@@ -2,6 +2,12 @@
 bin/
 lib64/
 
+# bundled shared library (built by make build-wheel)
+vdi_client/lib/
+
+# temporary build venv (created by make build-wheel)
+.build-venv/
+
 # build directories
 src/vdi_wrapper/build/
 
