@@ -5,6 +5,9 @@ VDI client - configuration file handling.
 
 Loads optional shell-style configuration files that may define ``BASE_URL``
 and other environment variables used by the VDI client.
+
+This module also defines constants and resolution helpers for log file
+location and naming (used by the ``log`` subcommand).
 """
 
 from __future__ import annotations
@@ -13,6 +16,59 @@ import os
 from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path.home() / ".vdi" / "config"
+
+# --- Log file configuration ---
+
+# Environment variables that configure log file location and naming.
+VDI_LOG_DIR_ENV = "VDI_LOG_DIR"
+VDI_LOG_PREFIX_ENV = "VDI_LOG_FILE_PREFIX"
+
+# Defaults matching the wrapper library behaviour.
+DEFAULT_LOG_DIR = Path.home() / ".vdi" / "logs"
+DEFAULT_LOG_PREFIX = "vdi_log."
+
+
+def resolve_log_dir(log_dir_override: str | None = None) -> Path:
+    """Resolve the directory where VDI log files are stored.
+
+    The lookup order is:
+
+    1. Explicit ``log_dir_override`` (from ``--log-dir`` flag).
+    2. ``VDI_LOG_DIR`` environment variable.
+    3. ``${HOME}/.vdi/logs/`` (default).
+
+    Args:
+        log_dir_override: Optional explicit path passed on the command line.
+
+    Returns:
+        The resolved :class:`~pathlib.Path` to the log directory.
+    """
+    if log_dir_override:
+        return Path(log_dir_override)
+    env_dir = os.environ.get(VDI_LOG_DIR_ENV)
+    if env_dir:
+        return Path(env_dir)
+    return DEFAULT_LOG_DIR
+
+
+def resolve_log_prefix(log_prefix_override: str | None = None) -> str:
+    """Resolve the prefix used for VDI log file names.
+
+    The lookup order is:
+
+    1. Explicit ``log_prefix_override`` (from ``--log-prefix`` flag).
+    2. ``VDI_LOG_FILE_PREFIX`` environment variable.
+    3. ``vdi_log.`` (default).
+
+    Args:
+        log_prefix_override: Optional explicit prefix passed on the command line.
+
+    Returns:
+        The resolved prefix string.
+    """
+    if log_prefix_override is not None:
+        return log_prefix_override
+    return os.environ.get(VDI_LOG_PREFIX_ENV, DEFAULT_LOG_PREFIX)
 
 
 def load_config(config_path: Path | None = None) -> dict[str, str]:

@@ -10,14 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from vdi_client.log import (
+from vdi_client.config import (
     DEFAULT_LOG_DIR,
     DEFAULT_LOG_PREFIX,
+    resolve_log_dir,
+    resolve_log_prefix,
+)
+from vdi_client.log import (
     clean_logs,
     collect_log_entries,
     list_logs,
-    resolve_log_dir,
-    resolve_log_prefix,
     show_log,
 )
 

@@ -6,15 +6,13 @@ VDI client - ``log`` subcommand.
 Provides subcommands to list, inspect and clean up VDI log files created
 by ``libvdi.so`` during ``vdi run`` sessions.
 
-Log files are written to the directory defined by the ``VDI_LOG_DIR``
-environment variable (default: ``${HOME}/.vdi/logs/``) and use the naming
-convention ``<prefix><pid>.log`` where ``<prefix>`` defaults to ``vdi_log.``
-and can be overridden via ``VDI_LOG_FILE_PREFIX``.
+Log file location and naming configuration (``VDI_LOG_DIR``,
+``VDI_LOG_FILE_PREFIX`` and their defaults) is defined in
+:mod:`vdi_client.config`.
 """
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 from dataclasses import dataclass
@@ -22,15 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-# Environment variables that configure log file location and naming.
-VDI_LOG_DIR_ENV = "VDI_LOG_DIR"
-VDI_LOG_PREFIX_ENV = "VDI_LOG_FILE_PREFIX"
+from vdi_client.config import resolve_log_dir, resolve_log_prefix
 
-# Defaults matching the wrapper library behaviour.
-DEFAULT_LOG_DIR = Path.home() / ".vdi" / "logs"
-DEFAULT_LOG_PREFIX = "vdi_log."
-
-# Pattern used to extract the PID from a log file name: <prefix><pid>.log
 _LOG_NAME_RE_TEMPLATE = r"^{prefix}(\d+)\.log$"
 
 
@@ -51,49 +42,6 @@ class LogEntry:
     size: int
     mtime: float
     program: str | None
-
-
-def resolve_log_dir(log_dir_override: str | None = None) -> Path:
-    """Resolve the directory where VDI log files are stored.
-
-    The lookup order is:
-
-    1. Explicit ``log_dir_override`` (from ``--log-dir`` flag).
-    2. ``VDI_LOG_DIR`` environment variable.
-    3. ``${HOME}/.vdi/logs/`` (default).
-
-    Args:
-        log_dir_override: Optional explicit path passed on the command line.
-
-    Returns:
-        The resolved :class:`~pathlib.Path` to the log directory.
-    """
-    if log_dir_override:
-        return Path(log_dir_override)
-    env_dir = os.environ.get(VDI_LOG_DIR_ENV)
-    if env_dir:
-        return Path(env_dir)
-    return DEFAULT_LOG_DIR
-
-
-def resolve_log_prefix(log_prefix_override: str | None = None) -> str:
-    """Resolve the prefix used for VDI log file names.
-
-    The lookup order is:
-
-    1. Explicit ``log_prefix_override`` (from ``--log-prefix`` flag).
-    2. ``VDI_LOG_FILE_PREFIX`` environment variable.
-    3. ``vdi_log.`` (default).
-
-    Args:
-        log_prefix_override: Optional explicit prefix passed on the command line.
-
-    Returns:
-        The resolved prefix string.
-    """
-    if log_prefix_override is not None:
-        return log_prefix_override
-    return os.environ.get(VDI_LOG_PREFIX_ENV, DEFAULT_LOG_PREFIX)
 
 
 def _parse_pid_from_name(filename: str, prefix: str) -> int | None:
@@ -414,4 +362,3 @@ def clean_logs(
     if errors:
         return 1
     return 0
-    
