@@ -56,7 +56,7 @@ build-wheel: install-library $(PKG_LIB_DIR)/$(TARGET)
 	@if [ -x "$(BUILD_VENV)/bin/python" ]; then \
 		echo "Using existing virtual environment at $(BUILD_VENV) ..."; \
 		$(BUILD_VENV)/bin/python -m build --wheel; \
-	elif $(EESSI_PYTHON) -c "import build" 2>/dev/null; then \
+	elif $(EESSI_PYTHON) -c "import build.__main__" 2>/dev/null; then \
 		$(EESSI_PYTHON) -m build --wheel; \
 	else \
 		echo "No 'build' module found; creating temporary virtual environment at $(BUILD_VENV) ..."; \
@@ -82,10 +82,11 @@ clean-install:
 
 clean-wheel:
 	rm -rf $(PKG_LIB_DIR)
+	rm -rf build
 	rm -rf dist
 	rm -rf $(BUILD_VENV)
 
-clean-all: clean clean-install
+clean-all: clean clean-install clean-wheel
 
 # phony targets
 .PHONY: all install install-script install-library build-wheel clean clean-install clean-wheel clean-all
