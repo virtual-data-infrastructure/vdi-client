@@ -233,6 +233,8 @@ def list_logs(
             program = entry.program or "?"
             print(f"{entry.pid:>10}  {_format_size(entry.size):>8}  {_format_mtime(entry.mtime):<19}  {program}")
     else:
+        print(f"{'PID':>10}  File")
+        print(f"{'---':>10}  ----")
         for entry in entries:
             print(f"{entry.pid:>10}  {entry.path.name}")
 
