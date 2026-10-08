@@ -65,7 +65,7 @@ build-wheel: install-library $(PKG_LIB_DIR)/$(TARGET)
 		$(BUILD_VENV)/bin/python -m pip install --quiet build; \
 		$(BUILD_VENV)/bin/python -m build --wheel; \
 		rm -rf $(BUILD_VENV); \
-		echo "To use a persistent venv, see the comment above the build-wheel target in the Makefile.";
+		echo "To use a persistent venv, see the comment above the build-wheel target in the Makefile."; \
 	fi
 
 $(PKG_LIB_DIR)/$(TARGET): $(LIB_DIR)/$(TARGET)
