@@ -185,7 +185,7 @@ class TestListLogs:
         result = list_logs(log_dir_override=str(tmp_path), sort_key="pid")
         assert result == 0
         captured = capsys.readouterr()
-        lines = [line for line in captured.out.strip().split("\n") if line.strip()]
+        lines = [line for line in captured.out.strip().split("\n") if line.strip() and line.split()[0].isdigit()]
         pids = [int(line.split()[0]) for line in lines]
         assert pids == [100, 200, 300]
 
@@ -196,7 +196,7 @@ class TestListLogs:
         result = list_logs(log_dir_override=str(tmp_path), sort_key="pid", reverse=True)
         assert result == 0
         captured = capsys.readouterr()
-        lines = [line for line in captured.out.strip().split("\n") if line.strip()]
+        lines = [line for line in captured.out.strip().split("\n") if line.strip() and line.split()[0].isdigit()]
         pids = [int(line.split()[0]) for line in lines]
         assert pids == [300, 200, 100]
 
@@ -206,7 +206,7 @@ class TestListLogs:
         result = list_logs(log_dir_override=str(tmp_path), sort_key="size")
         assert result == 0
         captured = capsys.readouterr()
-        lines = [line for line in captured.out.strip().split("\n") if line.strip()]
+        lines = [line for line in captured.out.strip().split("\n") if line.strip() and line.split()[0].isdigit()]
         pids = [int(line.split()[0]) for line in lines]
         assert pids == [100, 200]
 
@@ -218,7 +218,7 @@ class TestListLogs:
         result = list_logs(log_dir_override=str(tmp_path), sort_key="date")
         assert result == 0
         captured = capsys.readouterr()
-        lines = [line for line in captured.out.strip().split("\n") if line.strip()]
+        lines = [line for line in captured.out.strip().split("\n") if line.strip() and line.split()[0].isdigit()]
         pids = [int(line.split()[0]) for line in lines]
         assert pids == [100, 200]
 
@@ -228,7 +228,7 @@ class TestListLogs:
         result = list_logs(log_dir_override=str(tmp_path), sort_key="program")
         assert result == 0
         captured = capsys.readouterr()
-        lines = [line for line in captured.out.strip().split("\n") if line.strip()]
+        lines = [line for line in captured.out.strip().split("\n") if line.strip() and line.split()[0].isdigit()]
         pids = [int(line.split()[0]) for line in lines]
         assert pids == [200, 100]
 

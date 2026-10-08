@@ -325,7 +325,7 @@ class TestMainLogDispatch:
         result = main(["log", "--log-dir", str(tmp_path), "list", "--sort", "size"])
         assert result == 0
         captured = capsys.readouterr()
-        lines = [line for line in captured.out.strip().split("\n") if line.strip()]
+        lines = [line for line in captured.out.strip().split("\n") if line.strip() and line.split()[0].isdigit()]
         pids = [int(line.split()[0]) for line in lines]
         assert pids == [100, 200]
 
