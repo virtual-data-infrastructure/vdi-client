@@ -59,12 +59,13 @@ build-wheel: install-library $(PKG_LIB_DIR)/$(TARGET)
 	elif $(EESSI_PYTHON) -c "import build" 2>/dev/null; then \
 		$(EESSI_PYTHON) -m build --wheel; \
 	else \
-		echo "Creating temporary virtual environment at $(BUILD_VENV) ..."; \
+		echo "No 'build' module found; creating temporary virtual environment at $(BUILD_VENV) ..."; \
 		$(EESSI_PYTHON) -m venv $(BUILD_VENV); \
 		$(BUILD_VENV)/bin/python -m pip install --quiet --upgrade pip; \
 		$(BUILD_VENV)/bin/python -m pip install --quiet build; \
 		$(BUILD_VENV)/bin/python -m build --wheel; \
 		rm -rf $(BUILD_VENV); \
+		echo "To use a persistent venv, see the comment above the build-wheel target in the Makefile.";
 	fi
 
 $(PKG_LIB_DIR)/$(TARGET): $(LIB_DIR)/$(TARGET)
