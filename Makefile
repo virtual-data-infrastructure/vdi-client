@@ -11,7 +11,7 @@ TARGET = libvdi.so
 PKG_LIB_DIR = vdi_client/lib
 
 # Python interpreter from the EESSI compat layer (used for building wheels)
-EESSI_PYTHON = $(EESSI_EPREFIX)/bin/python
+EESSI_PYTHON = $(EESSI_EPREFIX)/usr/bin/python
 
 # default target to install both the script and the shared library
 all: install
