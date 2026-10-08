@@ -13,6 +13,9 @@ PKG_LIB_DIR = vdi_client/lib
 # Python interpreter from the EESSI compat layer (used for building wheels)
 EESSI_PYTHON = $(EESSI_EPREFIX)/usr/bin/python
 
+# temporary virtual environment for wheel building
+BUILD_VENV = .build-venv
+
 # default target to install both the script and the shared library
 all: install
 
@@ -34,9 +37,35 @@ install-library:
 # build a wheel that bundles the pre-built shared library
 # 1. compile libvdi.so via the subdirectory Makefile (requires EESSI)
 # 2. copy it into the package tree (vdi_client/lib/)
-# 3. build the wheel with the EESSI compat-layer Python
+# 3. build the wheel using the 'build' package; if it is not available,
+#    a temporary venv is created, pip is upgraded, and 'build' is installed
+#
+# To use a persistent venv instead (e.g. for debugging or repeated builds),
+# create one manually:
+#
+#     $(EESSI_PYTHON) -m venv $(BUILD_VENV)
+#     source $(BUILD_VENV)/bin/activate
+#     pip install --upgrade pip
+#     pip install build
+#     make build-wheel
+#     deactivate
+#
+# The persistent venv will be detected and reused; remove it with
+# 'rm -rf $(BUILD_VENV)' or 'make clean-wheel'.
 build-wheel: install-library $(PKG_LIB_DIR)/$(TARGET)
-	$(EESSI_PYTHON) -m build --wheel
+	@if [ -x "$(BUILD_VENV)/bin/python" ]; then \
+		echo "Using existing virtual environment at $(BUILD_VENV) ..."; \
+		$(BUILD_VENV)/bin/python -m build --wheel; \
+	elif $(EESSI_PYTHON) -c "import build" 2>/dev/null; then \
+		$(EESSI_PYTHON) -m build --wheel; \
+	else \
+		echo "Creating temporary virtual environment at $(BUILD_VENV) ..."; \
+		$(EESSI_PYTHON) -m venv $(BUILD_VENV); \
+		$(BUILD_VENV)/bin/python -m pip install --quiet --upgrade pip; \
+		$(BUILD_VENV)/bin/python -m pip install --quiet build; \
+		$(BUILD_VENV)/bin/python -m build --wheel; \
+		rm -rf $(BUILD_VENV); \
+	fi
 
 $(PKG_LIB_DIR)/$(TARGET): $(LIB_DIR)/$(TARGET)
 	mkdir -p $(PKG_LIB_DIR)
@@ -53,6 +82,7 @@ clean-install:
 clean-wheel:
 	rm -rf $(PKG_LIB_DIR)
 	rm -rf dist
+	rm -rf $(BUILD_VENV)
 
 clean-all: clean clean-install
 

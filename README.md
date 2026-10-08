@@ -149,6 +149,36 @@ pymarkdown -c .pymarkdown.json scan README.md src/vdi_wrapper/README.md
 
 ### Building a wheel
 
+The `make build-wheel` target compiles `libvdi.so` under EESSI, copies it
+into `vdi_client/lib/`, and builds a platform wheel that bundles the shared
+library.
+
 ```bash
-python -m build
+# EESSI must be initialized and the environment must be clean
+# (no LD_LIBRARY_PATH, LIBRARY_PATH scoped to EESSI)
+make build-wheel
 ```
+
+If the `build` package is not available, `make build-wheel` automatically
+creates a temporary virtual environment, installs `build` into it, builds
+the wheel, and removes the venv.
+
+To use a persistent virtual environment (e.g. for debugging or repeated
+builds), create one manually:
+
+```bash
+# Create and activate a venv using the EESSI compat-layer Python
+$EESSI_EPREFIX/usr/bin/python -m venv .build-venv
+source .build-venv/bin/activate
+pip install --upgrade pip
+pip install build
+
+# Build the wheel
+make build-wheel
+
+# Clean up when done
+deactivate
+make clean-wheel
+```
+
+The resulting wheel is written to `dist/`.
