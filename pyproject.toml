@@ -221,7 +221,7 @@ line-ending = "auto"
 [tool.setuptools_scm]
 
 [tool.setuptools]
-packages = ["vdi_client"]
+packages = ["vdi_client", "vdi_client.lib"]
 
 [tool.setuptools.package-data]
 vdi_client = ["lib/libvdi.so"]
