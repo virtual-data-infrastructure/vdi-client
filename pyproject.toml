@@ -62,8 +62,6 @@ dev = [
 [project.scripts]
 vdi = "vdi_client.cli:main"
 
-[project.entry-points."setuptools_scm.local_scheme"]
-eessi = "vdi_client._version_scheme:local_scheme"
 
 [project.urls]
 Homepage = "https://github.com/virtual-data-infrastructure/vdi-client"
@@ -222,11 +220,6 @@ indent-style = "space"
 line-ending = "auto"
 
 [tool.setuptools_scm]
-# Custom local version scheme that appends the EESSI version (e.g.
-# "eessi2023.06") as a local segment when VDI_EESSI_VERSION is set at
-# build time, so each {architecture, EESSI_version} wheel gets a unique
-# filename on PyPI.
-local_scheme = "eessi"
 
 [tool.setuptools.packages.find]
 include = ["vdi_client", "vdi_client.*"]
