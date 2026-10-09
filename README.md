@@ -245,3 +245,53 @@ make clean-wheel
 ```
 
 The resulting wheel is written to `dist/`.
+
+### Releasing
+
+Releases are triggered by pushing a tag matching `v*` (e.g. `v0.1.0`).
+The GitHub Actions workflow in `.github/workflows/release.yml` then builds
+a platform wheel (compiling `libvdi.so` against EESSI) and publishes it to
+PyPI using OIDC trusted publishing - no API token is stored as a secret.
+
+#### One-time setup: PyPI trusted publishing
+
+Before the first release, a project maintainer must configure the
+connection between GitHub and PyPI:
+
+1. **Log in PyPI**
+   - Go to <https://pypi.org> and log in.
+
+2. **Add the trusted publisher** on PyPI:
+   - Navigate to the **Your account** -> **Publishing**
+   - Scroll down to section **Add a new pending publisher**
+   - Fill in the GitHub tab:
+     - **PyPI project name**: `vdi-client`
+     - **Owner**: `virtual-data-infrastructure`
+     - **Repository**: `vdi-client`
+     - **Workflow filename**: `release.yml`
+     - **Environment name**: `pypi`
+
+3. **Create the `pypi` environment on GitHub**:
+   - Go to the repository **Settings** -> **Environments** -> **New environment**.
+   - Name it `pypi`.
+   - (Optional) Add required reviewers so a human must approve the
+     publish job before it runs.
+
+No API tokens or secrets are needed — authentication is handled entirely
+through the OIDC token exchange between GitHub Actions and PyPI.
+
+#### Creating a release
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow will:
+
+1. Build a platform wheel for each architecture in the matrix
+   (currently `x86_64`; `aarch64` and `riscv64` can be added later).
+2. Publish all wheels to PyPI under the `pypi` environment.
+
+After the workflow completes, the new version is installable via
+`pip install vdi-client` or `uv pip install vdi-client`.
