@@ -9,6 +9,10 @@
 # The workflow compiles libvdi.so against the EESSI toolchain, bundles it
 # into a platform wheel via 'make build-wheel', and publishes the result
 # to PyPI using OIDC trusted publishing (no API token required).
+#
+# Each {architecture, EESSI_version} combination produces a distinct wheel
+# with the EESSI version encoded as a local version segment (e.g.
+# vdi_client-0.1.0+eessi2023.06-...whl).
 
 name: Release
 
@@ -25,7 +29,7 @@ permissions:
 
 jobs:
   build:
-    name: Build wheel (${{ matrix.arch }})
+    name: Build wheel (${{ matrix.arch }}, EESSI ${{ matrix.eessi_version }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -34,6 +38,21 @@ jobs:
           - arch: x86_64
             runner: ubuntu-24.04
             eessi_version: '2023.06'
+          - arch: x86_64
+            runner: ubuntu-24.04
+            eessi_version: '2025.06'
+          - arch: x86_64
+            runner: ubuntu-24.04
+            eessi_version: '2026.06'
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            eessi_version: '2023.06'
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            eessi_version: '2025.06'
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            eessi_version: '2026.06'
 
     steps:
       - name: Checkout code
@@ -45,12 +64,12 @@ jobs:
           eessi_stack_version: '${{ matrix.eessi_version }}'
 
       - name: Build wheel
-        run: make build-wheel
+        run: make build-wheel EESSI_VERSION=${{ matrix.eessi_version }}
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: wheel-${{ matrix.arch }}
+          name: wheel-${{ matrix.arch }}-eessi-${{ matrix.eessi_version }}
           path: dist/*.whl
           if-no-files-found: error
 

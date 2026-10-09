@@ -16,6 +16,11 @@ EESSI_PYTHON = $(EESSI_EPREFIX)/usr/bin/python
 # temporary virtual environment for wheel building
 BUILD_VENV = .build-venv
 
+# EESSI stack version (e.g. "2023.06"); when set, exported as
+# VDI_EESSI_VERSION so the custom local_scheme in pyproject.toml appends
+# it to the wheel version (e.g. vdi_client-0.1.0+eessi2023.06-...whl).
+EESSI_VERSION ?=
+
 # default target to install both the script and the shared library
 all: install
 
@@ -53,7 +58,8 @@ install-library:
 # The persistent venv will be detected and reused; remove it with
 # 'rm -rf $(BUILD_VENV)' or 'make clean-wheel'.
 build-wheel: install-library $(PKG_LIB_DIR)/$(TARGET)
-	@if [ -x "$(BUILD_VENV)/bin/python" ]; then \
+	@if [ -n "$(EESSI_VERSION)" ]; then export VDI_EESSI_VERSION=$(EESSI_VERSION); fi; \
+	if [ -x "$(BUILD_VENV)/bin/python" ]; then \
 		echo "Using existing virtual environment at $(BUILD_VENV) ..."; \
 		$(BUILD_VENV)/bin/python -m build --wheel; \
 	elif $(EESSI_PYTHON) -c "import build.__main__" 2>/dev/null; then \

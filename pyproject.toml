@@ -219,6 +219,11 @@ indent-style = "space"
 line-ending = "auto"
 
 [tool.setuptools_scm]
+# Custom local version scheme that appends the EESSI version (e.g.
+# "eessi2023.06") as a local segment when VDI_EESSI_VERSION is set at
+# build time, so each {architecture, EESSI_version} wheel gets a unique
+# filename on PyPI.
+local_scheme = "vdi_client._version_scheme:local_scheme"
 
 [tool.setuptools.packages.find]
 include = ["vdi_client", "vdi_client.*"]
