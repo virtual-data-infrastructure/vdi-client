@@ -277,12 +277,14 @@ connection between GitHub and PyPI:
    - (Optional) Add required reviewers so a human must approve the
      publish job before it runs.
 
-No API tokens or secrets are needed — authentication is handled entirely
+No API tokens or secrets are needed. Authentication is handled entirely
 through the OIDC token exchange between GitHub Actions and PyPI.
 
 #### Creating a release
 
 ```bash
+git checkout main
+git pull origin main
 git tag v0.1.0
 git push origin v0.1.0
 ```
