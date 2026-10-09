@@ -258,24 +258,27 @@ PyPI using OIDC trusted publishing - no API token is stored as a secret.
 Before the first release, a project maintainer must configure the
 connection between GitHub and PyPI:
 
-1. **Log in PyPI**
-   - Go to <https://pypi.org> and log in.
+##### Log in to PyPI
 
-2. **Add the trusted publisher** on PyPI:
-   - Navigate to the **Your account** -> **Publishing**
-   - Scroll down to section **Add a new pending publisher**
-   - Fill in the GitHub tab:
-     - **PyPI project name**: `vdi-client`
-     - **Owner**: `virtual-data-infrastructure`
-     - **Repository**: `vdi-client`
-     - **Workflow filename**: `release.yml`
-     - **Environment name**: `pypi`
+- Go to <https://pypi.org> and log in.
 
-3. **Create the `pypi` environment on GitHub**:
-   - Go to the repository **Settings** -> **Environments** -> **New environment**.
-   - Name it `pypi`.
-   - (Optional) Add required reviewers so a human must approve the
-     publish job before it runs.
+##### Add the trusted publisher
+
+- Navigate to **Your account** -> **Publishing**
+- Scroll down to section **Add a new pending publisher**
+- Fill in the GitHub tab:
+  - **PyPI project name**: `vdi-client`
+  - **Owner**: `virtual-data-infrastructure`
+  - **Repository**: `vdi-client`
+  - **Workflow filename**: `release.yml`
+  - **Environment name**: `pypi`
+
+##### Create the `pypi` environment on GitHub
+
+- Go to the repository **Settings** -> **Environments** -> **New environment**.
+- Name it `pypi`.
+- (Optional) Add required reviewers so a human must approve the
+  publish job before it runs.
 
 No API tokens or secrets are needed. Authentication is handled entirely
 through the OIDC token exchange between GitHub Actions and PyPI.
