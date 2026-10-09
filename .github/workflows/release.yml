@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2025-2026 VDI contributors
+#
+# VDI client - client tools for the virtual data infrastructure.
+#
+# GitHub Actions workflow for building per-architecture platform wheels
+# and publishing them to PyPI. Triggered by tag pushes matching 'v*'.
+#
+# The workflow compiles libvdi.so against the EESSI toolchain, bundles it
+# into a platform wheel via 'make build-wheel', and publishes the result
+# to PyPI using OIDC trusted publishing (no API token required).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# OIDC trusted publishing requires write access for the id-token.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    name: Build wheel (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            eessi_version: '2023.06'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Mount EESSI CernVM-FS repository
+        uses: eessi/github-action-eessi@834df09f7d60de47f10a7cbf59b470d69b9e2852 # v3.4.0
+        with:
+          eessi_stack_version: '${{ matrix.eessi_version }}'
+
+      - name: Build wheel
+        run: make build-wheel
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540549e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wheel-${{ matrix.arch }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: pypi
+
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
+        with:
+          packages-dir: dist
