@@ -250,13 +250,13 @@ const char *get_filename_from_url(const char *url) {
 
 char* get_directory(char *path) {
     if (path == NULL || *path == '\0') {
-        return ".";
+        return strdup(".");
     }
 
     // duplicate the input path to avoid modifying the original
     char *temp_path = strdup(path);
     if (temp_path == NULL) {
-        return ".";
+        return strdup(".");
     }
 
     // remove trailing slashes
@@ -273,7 +273,7 @@ char* get_directory(char *path) {
     if (last_slash == NULL) {
         // no slash found, return "."
         free(temp_path);
-        return ".";
+        return strdup(".");
     } else if (last_slash == temp_path) {
         // the last slash is the first character
         *(last_slash + 1) = '\0';
@@ -359,6 +359,7 @@ int download(const char *url, char **local_path) {
     char err_msg[MAX_STRING_LEN];
     snprintf(err_msg, MAX_STRING_LEN, "download dir '%s' does not exist or is not a directory", fullpath_directory);
     perror(err_msg);
+    free(fullpath_directory);
     free(fullpath_local_file);
     return EXIT_FAILURE;
   }
@@ -377,6 +378,7 @@ int download(const char *url, char **local_path) {
           char err_msg[MAX_STRING_LEN];
           snprintf(err_msg, MAX_STRING_LEN, "Failed to open file '%s' for writing", fullpath_local_file);
           perror(err_msg);
+          free(fullpath_directory);
           free(fullpath_local_file);
           return error_code; // rather use some error code
       }
@@ -390,6 +392,7 @@ int download(const char *url, char **local_path) {
       res = curl_easy_perform(curl);
       if (res != CURLE_OK) {
           fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+          free(fullpath_directory);
           free(fullpath_local_file);
           return res; // rather use some error code
       }
@@ -399,6 +402,7 @@ int download(const char *url, char **local_path) {
   }
   curl_global_cleanup();
 
+  free(fullpath_directory);
   return 0;
 }
 
@@ -554,12 +558,16 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         char err_msg[MAX_STRING_LEN];
         snprintf(err_msg, MAX_STRING_LEN, "log dir '%s' does not exist or is not a directory", log_dir);
         perror(err_msg);
+        free(log_dir);
+        free(log_path);
         return EXIT_FAILURE;
     }
     int logfd = actual_open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0640);
     if (logfd == -1) {
         // cannot open log_path -> just return for now
         perror("Failed to open file");
+        free(log_dir);
+        free(log_path);
         return EXIT_FAILURE;
     }
 
@@ -737,8 +745,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         username = strdup(STRING_CONST_USERNAME_ERROR);
         userhome = strdup(STRING_CONST_USERHOME_ERROR);
     } else {
-        username = pw->pw_name;
-        userhome = pw->pw_dir;
+        username = strdup(pw->pw_name);
+        userhome = strdup(pw->pw_dir);
     }
 
     // obtain pid, ppid and pgid (process ID, parent process ID and process group ID)
@@ -838,7 +846,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     char *cwd_string = NULL;
 
     if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        cwd_string = cwd;
+        cwd_string = strdup(cwd);
     } else {
         cwd_string = strdup(STRING_CONST_GETCWD_ERROR);
     }
@@ -927,6 +935,22 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
 
     // close logfd
     close(logfd);
+
+    // free heap-allocated strings
+    free(log_path);
+    free(log_dir);
+    free(utc_string);
+    free(hostname_string);
+    free(fqhn_string);
+    free(ip_string);
+    free(fqhn_and_ip_string);
+    free(username);
+    free(userhome);
+    free(program_name);
+    free(program_args_string);
+    free(program_start_time_string);
+    free(elapsed_time_string);
+    free(cwd_string);
 
     return EXIT_SUCCESS;
 }
