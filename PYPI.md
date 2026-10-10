@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/virtual-data-infrastructure/vdi-client/main/docs/assets/logo-lockup-transparent.png" alt="VDI logo" width="400">
+</p>
+
 # VDI client
 
 Client tools for the [virtual data infrastructure](https://github.com/virtual-data-infrastructure).
