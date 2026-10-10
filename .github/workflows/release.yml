@@ -177,10 +177,10 @@ jobs:
               mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
 
               # Initialize EESSI 2026.06 (only version supporting riscv64)
-              # EESSI_NO_MODULE_PURGE_ON_INIT must be set to avoid 'unbound variable'
-              # errors under 'set -u' (the init script checks it without a default)
-              export EESSI_NO_MODULE_PURGE_ON_INIT=
+              # EESSI init script is not 'set -u' safe, so relax it around the source
+              set +u
               source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
+              set -u
 
               # Build the versioned library
               make install-library-versioned EESSI_VERSION="2026.06"
@@ -240,11 +240,10 @@ jobs:
               mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
 
               # Initialize EESSI 2026.06
-              # EESSI_NO_MODULE_PURGE_ON_INIT must be set to avoid 'unbound variable'
-              # errors under 'set -u' (the init script checks it without a default)
-              export EESSI_NO_MODULE_PURGE_ON_INIT=
+              # EESSI init script is not 'set -u' safe, so relax it around the source
+              set +u
               source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
-              module load EESSI/2026.06
+              set -u
 
               # Install and test wheel
               export VDI_LOG_DIR=/tmp/vdi-test-logs
