@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2025-2026 VDI contributors
+#
+# VDI client - client tools for the virtual data infrastructure.
+#
+# Experimental workflow to build a riscv64 wheel inside a QEMU-emulated
+# EESSI build-node container. Triggered manually only.
+
+name: RISC-V Experiment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-riscv64:
+    name: Build wheel (riscv64)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: riscv64
+
+      - name: Build versioned library and wheel inside riscv64 container
+        run: |
+          docker run --rm \
+            --platform linux/riscv64 \
+            --privileged \
+            --device /dev/fuse \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ghcr.io/eessi/build-node:debian13-riscv64 \
+            bash -c '
+              set -euo pipefail
+              export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
+
+              # Initialize CernVM-FS
+              mkdir -p /var/run/cvmfs /var/lib/cvmfs
+              cvmfs_config setup
+              mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
+
+              # Initialize EESSI 2026.06 (only version supporting riscv64)
+              export EESSI_NO_MODULE_PURGE_ON_INIT=1
+              source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
+
+              # Build the versioned library
+              make install-library-versioned EESSI_VERSION="2026.06"
+
+              # Build the fat wheel using EESSI compat-layer Python
+              eessi_python="${EESSI_EPREFIX}/usr/bin/python"
+              rm -rf .build-venv
+              "$eessi_python" -m venv .build-venv
+              source .build-venv/bin/activate
+              pip install --quiet --upgrade pip
+              pip install --quiet build
+              make build-wheel
+              deactivate
+
+              # Verify the wheel was created
+              ls -la dist/*.whl
+            '
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheel-riscv64
+          path: dist/*.whl
+          if-no-files-found: error
