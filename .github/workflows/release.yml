@@ -73,9 +73,90 @@ jobs:
           path: dist/*.whl
           if-no-files-found: error
 
+  test:
+    name: Test wheel (${{ matrix.arch }}, EESSI ${{ matrix.eessi_version }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            eessi_version: '2023.06'
+          - arch: x86_64
+            runner: ubuntu-24.04
+            eessi_version: '2025.06'
+          - arch: x86_64
+            runner: ubuntu-24.04
+            eessi_version: '2026.06'
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            eessi_version: '2023.06'
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            eessi_version: '2025.06'
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            eessi_version: '2026.06'
+
+    steps:
+      - name: Mount EESSI CernVM-FS repository
+        uses: eessi/github-action-eessi@834df09f7d60de47f10a7cbf59b470d69b9e2852 # v3.4.0
+        with:
+          eessi_stack_version: '${{ matrix.eessi_version }}'
+
+      - name: Download wheel artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-${{ matrix.arch }}-eessi-${{ matrix.eessi_version }}
+          path: wheel
+
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install wheel and create venv
+        run: |
+          python -m venv /tmp/test-vdi
+          /tmp/test-vdi/bin/pip install --upgrade pip
+          /tmp/test-vdi/bin/pip install wheel/*.whl
+
+      - name: Test CLI basics
+        run: |
+          /tmp/test-vdi/bin/vdi --version
+          /tmp/test-vdi/bin/vdi --help
+          /tmp/test-vdi/bin/vdi run --dry-run cat /etc/hostname
+
+      - name: Test run with LD_PRELOAD and log creation
+        env:
+          VDI_LOG_DIR: /tmp/vdi-test-logs
+        run: |
+          mkdir -p /tmp/vdi-test-logs
+          /tmp/test-vdi/bin/vdi run cat /etc/hostname
+          # Verify a log file was created
+          log_count=$(find /tmp/vdi-test-logs -name '*.log' | wc -l)
+          if [ "$log_count" -eq 0 ]; then
+            echo "Error: no log file was created"
+            exit 1
+          fi
+          echo "Log file(s) created: $log_count"
+
+      - name: Test log subcommands
+        env:
+          VDI_LOG_DIR: /tmp/vdi-test-logs
+        run: |
+          /tmp/test-vdi/bin/vdi log list
+          /tmp/test-vdi/bin/vdi log list --long
+          # Get the PID from the first log file and show its contents
+          pid=$(find /tmp/vdi-test-logs -name 'vdi_log.*.log' -exec basename {} .log \; | head -1 | sed 's/vdi_log\.//')
+          echo "Showing log for PID: $pid"
+          /tmp/test-vdi/bin/vdi log show "$pid"
+
   publish:
     name: Publish to PyPI
-    needs: build
+    needs: [build, test]
     runs-on: ubuntu-24.04
     environment: pypi
 
