@@ -76,17 +76,22 @@ endif
 # The persistent venv will be detected and reused; remove it with
 # 'rm -rf $(BUILD_VENV)' or 'make clean-wheel'.
 build-wheel: copy-versioned-libs
-	@if [ -x "$(BUILD_VENV)/bin/python" ]; then \
+	@UNAME_M=$$(uname -m); \
+	if [ "$$UNAME_M" = "x86_64" ]; then PLAT_NAME=manylinux2014_x86_64; \
+	elif [ "$$UNAME_M" = "aarch64" ] || [ "$$UNAME_M" = "arm64" ]; then PLAT_NAME=manylinux2014_aarch64; \
+	else echo "Unsupported architecture: $$UNAME_M"; exit 1; fi; \
+	echo "Building wheel for platform: $$PLAT_NAME"; \
+	if [ -x "$(BUILD_VENV)/bin/python" ]; then \
 		echo "Using existing virtual environment at $(BUILD_VENV) ..."; \
-		$(BUILD_VENV)/bin/python -m build --wheel; \
+		$(BUILD_VENV)/bin/python -m build --wheel -C--build-option=plat_name=$$PLAT_NAME; \
 	elif command -v python >/dev/null 2>&1 && python -c "import build.__main__" 2>/dev/null; then \
-		python -m build --wheel; \
+		python -m build --wheel -C--build-option=plat_name=$$PLAT_NAME; \
 	else \
 		echo "No 'build' module found; creating temporary virtual environment at $(BUILD_VENV) ..."; \
 		python -m venv $(BUILD_VENV); \
 		$(BUILD_VENV)/bin/python -m pip install --quiet --upgrade pip; \
 		$(BUILD_VENV)/bin/python -m pip install --quiet build; \
-		$(BUILD_VENV)/bin/python -m build --wheel; \
+		$(BUILD_VENV)/bin/python -m build --wheel -C--build-option=plat_name=$$PLAT_NAME; \
 		rm -rf $(BUILD_VENV); \
 		echo "To use a persistent venv, see the comment above the build-wheel target in the Makefile."; \
 	fi
