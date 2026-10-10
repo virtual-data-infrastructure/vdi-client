@@ -16,10 +16,9 @@ EESSI_PYTHON = $(EESSI_EPREFIX)/usr/bin/python
 # temporary virtual environment for wheel building
 BUILD_VENV = .build-venv
 
-# EESSI stack version (e.g. "2023.06"); when set, the built wheel is
-# renamed to include it as a local version segment (e.g.
-# vdi_client-0.1.0+eessi2023.06-...whl) so each {architecture, EESSI_version}
-# wheel has a unique filename on PyPI.
+# EESSI stack version (e.g. "2023.06"); when set, the built library is
+# installed as libvdi_eessi{EESSI_VERSION}.so so that multiple EESSI versions
+# can coexist and be bundled into a single fat wheel per architecture.
 EESSI_VERSION ?=
 
 # default target to install both the script and the shared library
@@ -40,16 +39,31 @@ $(BIN_DIR)/$(SCRIPT): $(SCRIPT)
 install-library:
 	$(MAKE) -C $(VDI_SRCS_DIR) install
 
-# build a wheel that bundles the pre-built shared library
-# 1. compile libvdi.so via the subdirectory Makefile (requires EESSI)
-# 2. copy it into the package tree (vdi_client/lib/)
-# 3. build the wheel using the 'build' package; if it is not available,
-#    a temporary venv is created, pip is upgraded, and 'build' is installed
+# compile and install the shared library with an EESSI-versioned filename
+# (e.g. libvdi_eessi2023.06.so). Requires EESSI to be initialized and
+# EESSI_VERSION to be set. The subdirectory Makefile builds libvdi.so
+# into lib64/, then this target renames the copy to include the version.
+install-library-versioned: install-library
+ifndef EESSI_VERSION
+	$(error EESSI_VERSION is not set; run 'make install-library-versioned EESSI_VERSION=2023.06')
+endif
+	@if [ -f "$(LIB_DIR)/$(TARGET)" ]; then \
+		mv "$(LIB_DIR)/$(TARGET)" "$(LIB_DIR)/libvdi_eessi$(EESSI_VERSION).so"; \
+		echo "Installed versioned library: $(LIB_DIR)/libvdi_eessi$(EESSI_VERSION).so"; \
+	else \
+		echo "Error: $(LIB_DIR)/$(TARGET) not found after build"; exit 1; \
+	fi
+
+# build a fat wheel that bundles all pre-built versioned shared libraries
+# (libvdi_eessi*.so). This target does NOT require EESSI - it only needs
+# Python and the 'build' package. The versioned .so files must already
+# exist in $(LIB_DIR)/ (built via 'make install-library-versioned' for
+# each EESSI version).
 #
 # To use a persistent venv instead (e.g. for debugging or repeated builds),
 # create one manually:
 #
-#     $(EESSI_PYTHON) -m venv $(BUILD_VENV)
+#     python -m venv $(BUILD_VENV)
 #     source $(BUILD_VENV)/bin/activate
 #     pip install --upgrade pip
 #     pip install build
@@ -58,36 +72,37 @@ install-library:
 #
 # The persistent venv will be detected and reused; remove it with
 # 'rm -rf $(BUILD_VENV)' or 'make clean-wheel'.
-build-wheel: install-library $(PKG_LIB_DIR)/$(TARGET)
+build-wheel: copy-versioned-libs
 	@if [ -x "$(BUILD_VENV)/bin/python" ]; then \
 		echo "Using existing virtual environment at $(BUILD_VENV) ..."; \
 		$(BUILD_VENV)/bin/python -m build --wheel; \
-	elif $(EESSI_PYTHON) -c "import build.__main__" 2>/dev/null; then \
-		$(EESSI_PYTHON) -m build --wheel; \
+	elif command -v python >/dev/null 2>&1 && python -c "import build.__main__" 2>/dev/null; then \
+		python -m build --wheel; \
 	else \
 		echo "No 'build' module found; creating temporary virtual environment at $(BUILD_VENV) ..."; \
-		$(EESSI_PYTHON) -m venv $(BUILD_VENV); \
+		python -m venv $(BUILD_VENV); \
 		$(BUILD_VENV)/bin/python -m pip install --quiet --upgrade pip; \
 		$(BUILD_VENV)/bin/python -m pip install --quiet build; \
 		$(BUILD_VENV)/bin/python -m build --wheel; \
 		rm -rf $(BUILD_VENV); \
 		echo "To use a persistent venv, see the comment above the build-wheel target in the Makefile."; \
 	fi
-	@if [ -n "$(EESSI_VERSION)" ]; then \
-		for whl in dist/*.whl; do \
-			base=$$(basename "$$whl"); \
-			case "$$base" in \
-				*+eessi*) echo "Wheel already has EESSI segment: $$base";; \
-				*) newname=$$(echo "$$base" | sed "s/^\([^.-]*\)-\([^.-]*\)-/\1-\2+eessi$(EESSI_VERSION)-/"); \
-				   mv "$$whl" "dist/$$newname"; \
-				   echo "Renamed wheel: $$base -> $$newname";; \
-			esac; \
-		done; \
-	fi
 
-$(PKG_LIB_DIR)/$(TARGET): $(LIB_DIR)/$(TARGET)
-	mkdir -p $(PKG_LIB_DIR)
-	cp $< $@
+copy-versioned-libs:
+	@mkdir -p $(PKG_LIB_DIR)
+	@libs_found=0; \
+	for lib in $(LIB_DIR)/libvdi_eessi*.so; do \
+		if [ -f "$$lib" ]; then \
+			cp "$$lib" $(PKG_LIB_DIR)/; \
+			echo "Bundled: $$(basename $$lib)"; \
+			libs_found=$$((libs_found + 1)); \
+		fi; \
+	done; \
+	if [ "$$libs_found" -eq 0 ]; then \
+		echo "Error: no versioned libraries found in $(LIB_DIR)/ (expected libvdi_eessi*.so)"; \
+		echo "Build them with 'make install-library-versioned EESSI_VERSION=<version>' for each EESSI version."; \
+		exit 1; \
+	fi
 
 # clean the build artifacts in the subdirectory and remove the installed files
 clean:
@@ -106,4 +121,4 @@ clean-wheel:
 clean-all: clean clean-install clean-wheel
 
 # phony targets
-.PHONY: all install install-script install-library build-wheel clean clean-install clean-wheel clean-all
+.PHONY: all install install-script install-library install-library-versioned build-wheel copy-versioned-libs clean clean-install clean-wheel clean-all

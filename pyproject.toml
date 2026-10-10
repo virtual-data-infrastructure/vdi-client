@@ -225,4 +225,4 @@ line-ending = "auto"
 include = ["vdi_client", "vdi_client.*"]
 
 [tool.setuptools.package-data]
-"vdi_client.lib" = ["libvdi.so"]
+"vdi_client.lib" = ["libvdi_eessi*.so"]
