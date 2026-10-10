@@ -632,7 +632,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         hints.ai_socktype = SOCK_STREAM;
 
         if (getifaddrs(&ifaddr) != -1) { // try preferred approach
-            char buffer[MAX_STRING_LEN];
+            char buffer[NI_MAXHOST + MAX_STRING_LEN];
             buffer[0] = '\0';
 
             for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
@@ -652,7 +652,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
                         continue;
                     }
 
-                    snprintf(buffer, MAX_STRING_LEN-1, "%s%s%s%s%s",
+                    snprintf(buffer, sizeof(buffer), "%s%s%s%s%s",
                              (family == AF_INET ? "IPv4" : "IPv6"), STRING_CONST_IPVER_SEPARATOR,
                              ifa->ifa_name, STRING_CONST_IPVER_SEPARATOR, host);
                     if (strlen(ip_string_tmp) != 0) {
@@ -666,7 +666,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
             freeifaddrs(ifaddr);
         } else if ((status = getaddrinfo(hostname, NULL, &hints, &res)) == 0) { // try alternative approach
             for(p = res; p != NULL; p = p->ai_next) {
-                char buffer[MAX_STRING_LEN];
+                char buffer[NI_MAXHOST + MAX_STRING_LEN];
                 buffer[0] = '\0';
                 void *addr;
                 char *ipver;
@@ -685,7 +685,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
 
                 // Convert the IP to a string and print it:
                 inet_ntop(p->ai_family, addr, ipstr, sizeof(ipstr));
-                snprintf(buffer, MAX_STRING_LEN-1, "%s%s%s", ipver, STRING_CONST_IPVER_SEPARATOR, ipstr);
+                snprintf(buffer, sizeof(buffer), "%s%s%s", ipver, STRING_CONST_IPVER_SEPARATOR, ipstr);
                 if (strlen(ip_string_tmp) != 0) {
                     strcat(ip_string_tmp, STRING_CONST_FQHN_AND_IP_SEPARATOR);
                 }
