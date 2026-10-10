@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.1] - 2026-10-10
+
+This is minor bug fix release of the vdi-client.
+
+Available on [PyPI](https://pypi.org/project/vdi-client/).
+
+### Changed
+
+- include CPU architecture family in name of wheels (#47)
+
+
 ## [0.1.0] - 2026-10-10
 
 This is the first release of the vdi-client, providing client tools for the
