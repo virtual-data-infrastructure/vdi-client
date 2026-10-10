@@ -19,32 +19,44 @@ jobs:
   test-eessi-riscv64:
     name: Test EESSI 2026.06 on riscv64
     runs-on: ubuntu-24.04
-    container:
-      image: ghcr.io/eessi/build-node:debian13-riscv64
-      options: --privileged
 
     steps:
-      - name: Show architecture
-        run: |
-          uname -m
-          cat /etc/os-release | head -5
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
-      - name: Mount EESSI CernVM-FS repository
-        run: |
-          mkdir -p /cvmfs/software.eessi.io
-          cvmfs2 software.eessi.io /cvmfs/software.eessi.io
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@e81a89b1732b9c48d79cd809d8d81d79c4647a18 # v2.1.0
+        with:
+          platforms: riscv64
 
-      - name: Initialize EESSI 2026.06
-        run: |
-          source /cvmfs/software.eessi.io/versions/2026.06/init/bash
-          echo "EESSI_EPREFIX=${EESSI_EPREFIX}"
-          module load EESSI/2026.06
-          module list
+      - name: Show host architecture
+        run: uname -m
 
-      - name: Sanity check compiler
+      - name: Test EESSI 2026.06 inside riscv64 container
         run: |
-          source /cvmfs/software.eessi.io/versions/2026.06/init/bash
-          module load EESSI/2026.06
-          gcc --version
-          echo "EESSI_EPREFIX=${EESSI_EPREFIX}"
-          ls "${EESSI_EPREFIX}/usr/bin/"
+          docker run --rm \
+            --platform linux/riscv64 \
+            --privileged \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ghcr.io/eessi/build-node:debian13-riscv64 \
+            bash -c '
+              set -e
+              echo "=== Architecture ==="
+              uname -m
+              cat /etc/os-release | head -5
+
+              echo "=== Mount CernVM-FS ==="
+              mkdir -p /cvmfs/software.eessi.io
+              cvmfs2 software.eessi.io /cvmfs/software.eessi.io
+
+              echo "=== Initialize EESSI 2026.06 ==="
+              source /cvmfs/software.eessi.io/versions/2026.06/init/bash
+              echo "EESSI_EPREFIX=${EESSI_EPREFIX}"
+              module load EESSI/2026.06
+              module list
+
+              echo "=== Sanity check compiler ==="
+              gcc --version
+              ls "${EESSI_EPREFIX}/usr/bin/"
+            '
