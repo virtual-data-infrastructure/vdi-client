@@ -19,9 +19,16 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 
 bool _global_show_log_path = true;
 int _global_debug_level = 0;
+
+// mutex for thread-safe logging
+pthread_mutex_t _log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// persistent log file descriptor (opened lazily on first log_call, closed in destructor)
+int _log_fd = -1;
 
 const int MAX_BUFFER_SIZE = 4096;
 const int MAX_PATH_LEN = PATH_MAX;
@@ -159,6 +166,10 @@ void library_load(void) {
 __attribute__((destructor))
 void library_unload(void) {
     debug(2, "Shared Library Unloaded: library_unload() called\n");
+    if (_log_fd != -1) {
+        close(_log_fd);
+        _log_fd = -1;
+    }
 }
 
 // helper functions
@@ -547,28 +558,37 @@ long long get_process_start_time(pid_t pid) {
 }
 
 int log_call(const char *func_name, int func_num_args, char **func_args) {
+    pthread_mutex_lock(&_log_mutex);
+
     char *log_path = get_log_path();
     if (_global_show_log_path) {
         debug(1, "using log file '%s'\n", log_path);
         _global_show_log_path = false;
     }
-    char *log_dir = get_directory(log_path);
 
-    if (create_dir(log_dir) != EXIT_SUCCESS) {
-        char err_msg[MAX_STRING_LEN];
-        snprintf(err_msg, MAX_STRING_LEN, "log dir '%s' does not exist or is not a directory", log_dir);
-        perror(err_msg);
+    // lazily open the log file descriptor on first call
+    if (_log_fd == -1) {
+        char *log_dir = get_directory(log_path);
+
+        if (create_dir(log_dir) != EXIT_SUCCESS) {
+            char err_msg[MAX_STRING_LEN];
+            snprintf(err_msg, MAX_STRING_LEN, "log dir '%s' does not exist or is not a directory", log_dir);
+            perror(err_msg);
+            free(log_dir);
+            free(log_path);
+            pthread_mutex_unlock(&_log_mutex);
+            return EXIT_FAILURE;
+        }
+        _log_fd = actual_open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0640);
         free(log_dir);
-        free(log_path);
-        return EXIT_FAILURE;
-    }
-    int logfd = actual_open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0640);
-    if (logfd == -1) {
-        // cannot open log_path -> just return for now
-        perror("Failed to open file");
-        free(log_dir);
-        free(log_path);
-        return EXIT_FAILURE;
+
+        if (_log_fd == -1) {
+            // cannot open log_path -> just return for now
+            perror("Failed to open file");
+            free(log_path);
+            pthread_mutex_unlock(&_log_mutex);
+            return EXIT_FAILURE;
+        }
     }
 
     // obtain epoch and its representation in UTC where whitespace is replaced with dashes '-'
@@ -924,21 +944,17 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
 
     // use actual_write
     ssize_t bytes_written;
-    bytes_written = actual_write(logfd, log_string, strlen(log_string));
+    bytes_written = actual_write(_log_fd, log_string, strlen(log_string));
     if (bytes_written == -1) {
         perror("Failed to write to file");
     }
-    debug(4, "wrote %ld bytes to fd %d\n", bytes_written, logfd);
+    debug(4, "wrote %ld bytes to fd %d\n", bytes_written, _log_fd);
 
     // free log_string
     free(log_string);
 
-    // close logfd
-    close(logfd);
-
     // free heap-allocated strings
     free(log_path);
-    free(log_dir);
     free(utc_string);
     free(hostname_string);
     free(fqhn_string);
@@ -952,6 +968,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     free(elapsed_time_string);
     free(cwd_string);
 
+    pthread_mutex_unlock(&_log_mutex);
     return EXIT_SUCCESS;
 }
 
