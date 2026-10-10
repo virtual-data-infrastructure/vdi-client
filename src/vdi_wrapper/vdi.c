@@ -1196,14 +1196,25 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
     return result;
 }
 
-int open64(const char *pathname, int flags, mode_t mode) {
+int open64(const char *pathname, int flags, ...) {
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
-    char **func_args = create_array_of_strings(3, MAX_STRING_LEN);
+
+    int num_func_args = (flags & O_CREAT ? 3 : 2);
+    char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
     snprintf(func_args[1], MAX_STRING_LEN-1, "%d::%s", flags, map_flags_to_strings(flags));
-    snprintf(func_args[2], MAX_STRING_LEN-1, "%d::0%o", mode, mode);
-    log_call(__func__, 3, func_args);
-    free_array_of_strings(func_args, 3);
+
+    mode_t mode = 0;
+
+    if (flags & O_CREAT) {
+        va_list arg;
+        va_start(arg, flags);
+        mode = va_arg(arg, mode_t);
+        va_end(arg);
+        snprintf(func_args[2], MAX_STRING_LEN-1, "%d::0%o", mode, mode);
+    }
+    log_call(__func__, num_func_args, func_args);
+    free_array_of_strings(func_args, num_func_args);
 
     char *local_path;
     // check if pathname begins with "remote" prefixes (https, http, ftp)
@@ -1222,9 +1233,15 @@ int open64(const char *pathname, int flags, mode_t mode) {
         local_path = strdup(pathname);
     }
 
-    int result = actual_open64(local_path, flags, mode);
-    free(local_path);
-    return result;
+    if (num_func_args == 3) {
+        int result = actual_open64(local_path, flags, mode);
+        free(local_path);
+        return result;
+    } else {
+        int result = actual_open64(local_path, flags);
+        free(local_path);
+        return result;
+    }
 }
 
 int openat(int dirfd, const char *pathname, int flags, ...) {
