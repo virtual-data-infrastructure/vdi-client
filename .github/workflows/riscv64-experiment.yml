@@ -37,6 +37,7 @@ jobs:
           docker run --rm \
             --platform linux/riscv64 \
             --privileged \
+            --device /dev/fuse \
             -v "$PWD:/workspace" \
             -w /workspace \
             ghcr.io/eessi/build-node:debian13-riscv64 \
@@ -46,9 +47,15 @@ jobs:
               uname -m
               cat /etc/os-release | head -5
 
+              echo "=== Initialize CernVM-FS ==="
+              mkdir -p /var/run/cvmfs /var/lib/cvmfs
+              cvmfs_config setup
+
               echo "=== Mount CernVM-FS ==="
-              mkdir -p /cvmfs/software.eessi.io
-              cvmfs2 software.eessi.io /cvmfs/software.eessi.io
+              mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
+
+              echo "=== Verify mount ==="
+              ls /cvmfs/software.eessi.io/versions/
 
               echo "=== Initialize EESSI 2026.06 ==="
               source /cvmfs/software.eessi.io/versions/2026.06/init/bash
