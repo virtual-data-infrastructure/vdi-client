@@ -58,6 +58,7 @@ jobs:
               ls /cvmfs/software.eessi.io/versions/
 
               echo "=== Initialize EESSI 2026.06 ==="
+              export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
               source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
               echo "EESSI_EPREFIX=${EESSI_EPREFIX}"
               # module load EESSI/2026.06
