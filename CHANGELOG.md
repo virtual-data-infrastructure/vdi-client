@@ -8,7 +8,7 @@ Available on [PyPI](https://pypi.org/project/vdi-client/).
 
 ### Changed
 
-- include CPU architecture family in name of  wheels (#47)
+- include CPU architecture family in name of wheels (#47)
 
 
 ## [0.1.0] - 2026-10-10
