@@ -6,7 +6,7 @@ CC = gcc
 CFLAGS = -fPIC -shared -Wall -Wextra -Werror -g
 # embed RUNPATH so libvdi.so finds its EESSI dependencies (libcurl, libdl)
 # without relying on LD_LIBRARY_PATH (which must not be used with EESSI)
-LDFLAGS = -ldl -lcurl -Wl,-rpath,$(EESSI_EPREFIX)/lib -Wl,--enable-new-dtags
+LDFLAGS = -ldl -lcurl -lpthread -Wl,-rpath,$(EESSI_EPREFIX)/lib -Wl,--enable-new-dtags
 
 # expected RUNPATH value embedded in the shared library
 EXPECTED_RUNPATH = $(EESSI_EPREFIX)/lib

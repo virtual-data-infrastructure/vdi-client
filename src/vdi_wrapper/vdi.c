@@ -19,9 +19,16 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 
 bool _global_show_log_path = true;
 int _global_debug_level = 0;
+
+// mutex for thread-safe logging
+pthread_mutex_t _log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// persistent log file descriptor (opened lazily on first log_call, closed in destructor)
+int _log_fd = -1;
 
 const int MAX_BUFFER_SIZE = 4096;
 const int MAX_PATH_LEN = PATH_MAX;
@@ -159,6 +166,10 @@ void library_load(void) {
 __attribute__((destructor))
 void library_unload(void) {
     debug(2, "Shared Library Unloaded: library_unload() called\n");
+    if (_log_fd != -1) {
+        close(_log_fd);
+        _log_fd = -1;
+    }
 }
 
 // helper functions
@@ -250,13 +261,13 @@ const char *get_filename_from_url(const char *url) {
 
 char* get_directory(char *path) {
     if (path == NULL || *path == '\0') {
-        return ".";
+        return strdup(".");
     }
 
     // duplicate the input path to avoid modifying the original
     char *temp_path = strdup(path);
     if (temp_path == NULL) {
-        return ".";
+        return strdup(".");
     }
 
     // remove trailing slashes
@@ -273,7 +284,7 @@ char* get_directory(char *path) {
     if (last_slash == NULL) {
         // no slash found, return "."
         free(temp_path);
-        return ".";
+        return strdup(".");
     } else if (last_slash == temp_path) {
         // the last slash is the first character
         *(last_slash + 1) = '\0';
@@ -320,10 +331,11 @@ int download(const char *url, char **local_path) {
     if (pw == NULL) {
         username = strdup(STRING_CONST_USERNAME_ERROR);
     } else {
-        username = pw->pw_name;
+        username = strdup(pw->pw_name);
     }
     char path[MAX_PATH_LEN];
     snprintf(path, MAX_PATH_LEN-1, STRING_CONST_DOWNLOAD_BASE_DEFAULT, username);
+    free(username);
     download_base = strdup(path);
   }
   // determine download filename
@@ -338,11 +350,18 @@ int download(const char *url, char **local_path) {
     snprintf(tmp_filename, MAX_PATH_LEN-1, STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE, pid, epoch, STRING_CONST_DOWNLOAD_FILENAME_DEFAULT);
     local_filename = strdup(tmp_filename);
   }
-  char fullpath_local_file[MAX_PATH_LEN];
+  char *fullpath_local_file = (char *)malloc(MAX_PATH_LEN);
+  if (fullpath_local_file == NULL) {
+    free(download_base);
+    free(local_filename);
+    return ENOMEM;
+  }
   fullpath_local_file[0] = '\0';
   strcat(fullpath_local_file, download_base);
   strcat(fullpath_local_file, STRING_CONST_DIRECTORY_SEPARATOR);
   strcat(fullpath_local_file, local_filename);
+  free(download_base);
+  free(local_filename);
   *local_path = fullpath_local_file;
 
   // obtain directory from fullpath_local_file and make sure it exists
@@ -351,6 +370,8 @@ int download(const char *url, char **local_path) {
     char err_msg[MAX_STRING_LEN];
     snprintf(err_msg, MAX_STRING_LEN, "download dir '%s' does not exist or is not a directory", fullpath_directory);
     perror(err_msg);
+    free(fullpath_directory);
+    free(fullpath_local_file);
     return EXIT_FAILURE;
   }
   debug(4, "created directory '%s' to download '%s'\n", fullpath_directory, fullpath_local_file);
@@ -368,6 +389,8 @@ int download(const char *url, char **local_path) {
           char err_msg[MAX_STRING_LEN];
           snprintf(err_msg, MAX_STRING_LEN, "Failed to open file '%s' for writing", fullpath_local_file);
           perror(err_msg);
+          free(fullpath_directory);
+          free(fullpath_local_file);
           return error_code; // rather use some error code
       }
       
@@ -380,6 +403,8 @@ int download(const char *url, char **local_path) {
       res = curl_easy_perform(curl);
       if (res != CURLE_OK) {
           fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+          free(fullpath_directory);
+          free(fullpath_local_file);
           return res; // rather use some error code
       }
 
@@ -388,6 +413,7 @@ int download(const char *url, char **local_path) {
   }
   curl_global_cleanup();
 
+  free(fullpath_directory);
   return 0;
 }
 
@@ -395,9 +421,10 @@ char *expand_shell_vars(const char *str) {
     char buffer[MAX_BUFFER_SIZE];
     const char *src = str;
     char *dest = buffer;
+    char *dest_end = buffer + MAX_BUFFER_SIZE - 1;
     char varname[MAX_BUFFER_SIZE];
 
-    while (*src) {
+    while (*src && dest < dest_end) {
         if (*src == '$') {
             src++;
             char *var_start = varname;
@@ -418,7 +445,7 @@ char *expand_shell_vars(const char *str) {
 
             char *value = getenv(varname);
             if (value) {
-                while (*value) {
+                while (*value && dest < dest_end) {
                     *dest++ = *value++;
                 }
             }
@@ -531,24 +558,37 @@ long long get_process_start_time(pid_t pid) {
 }
 
 int log_call(const char *func_name, int func_num_args, char **func_args) {
+    pthread_mutex_lock(&_log_mutex);
+
     char *log_path = get_log_path();
     if (_global_show_log_path) {
         debug(1, "using log file '%s'\n", log_path);
         _global_show_log_path = false;
     }
-    char *log_dir = get_directory(log_path);
 
-    if (create_dir(log_dir) != EXIT_SUCCESS) {
-        char err_msg[MAX_STRING_LEN];
-        snprintf(err_msg, MAX_STRING_LEN, "log dir '%s' does not exist or is not a directory", log_dir);
-        perror(err_msg);
-        return EXIT_FAILURE;
-    }
-    int logfd = actual_open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0640);
-    if (logfd == -1) {
-        // cannot open log_path -> just return for now
-        perror("Failed to open file");
-        return EXIT_FAILURE;
+    // lazily open the log file descriptor on first call
+    if (_log_fd == -1) {
+        char *log_dir = get_directory(log_path);
+
+        if (create_dir(log_dir) != EXIT_SUCCESS) {
+            char err_msg[MAX_STRING_LEN];
+            snprintf(err_msg, MAX_STRING_LEN, "log dir '%s' does not exist or is not a directory", log_dir);
+            perror(err_msg);
+            free(log_dir);
+            free(log_path);
+            pthread_mutex_unlock(&_log_mutex);
+            return EXIT_FAILURE;
+        }
+        _log_fd = actual_open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0640);
+        free(log_dir);
+
+        if (_log_fd == -1) {
+            // cannot open log_path -> just return for now
+            perror("Failed to open file");
+            free(log_path);
+            pthread_mutex_unlock(&_log_mutex);
+            return EXIT_FAILURE;
+        }
     }
 
     // obtain epoch and its representation in UTC where whitespace is replaced with dashes '-'
@@ -725,8 +765,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         username = strdup(STRING_CONST_USERNAME_ERROR);
         userhome = strdup(STRING_CONST_USERHOME_ERROR);
     } else {
-        username = pw->pw_name;
-        userhome = pw->pw_dir;
+        username = strdup(pw->pw_name);
+        userhome = strdup(pw->pw_dir);
     }
 
     // obtain pid, ppid and pgid (process ID, parent process ID and process group ID)
@@ -826,7 +866,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     char *cwd_string = NULL;
 
     if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        cwd_string = cwd;
+        cwd_string = strdup(cwd);
     } else {
         cwd_string = strdup(STRING_CONST_GETCWD_ERROR);
     }
@@ -904,18 +944,31 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
 
     // use actual_write
     ssize_t bytes_written;
-    bytes_written = actual_write(logfd, log_string, strlen(log_string));
+    bytes_written = actual_write(_log_fd, log_string, strlen(log_string));
     if (bytes_written == -1) {
         perror("Failed to write to file");
     }
-    debug(4, "wrote %ld bytes to fd %d\n", bytes_written, logfd);
+    debug(4, "wrote %ld bytes to fd %d\n", bytes_written, _log_fd);
 
     // free log_string
     free(log_string);
 
-    // close logfd
-    close(logfd);
+    // free heap-allocated strings
+    free(log_path);
+    free(utc_string);
+    free(hostname_string);
+    free(fqhn_string);
+    free(ip_string);
+    free(fqhn_and_ip_string);
+    free(username);
+    free(userhome);
+    free(program_name);
+    free(program_args_string);
+    free(program_start_time_string);
+    free(elapsed_time_string);
+    free(cwd_string);
 
+    pthread_mutex_unlock(&_log_mutex);
     return EXIT_SUCCESS;
 }
 
@@ -923,19 +976,19 @@ char *map_flags_to_strings(int flags) {
     char *buffer = (char *)malloc(1024 * sizeof(char));
     buffer[0] = '\0';
 
-    if ((flags & O_RDONLY) == O_RDONLY) {
+    if ((flags & O_ACCMODE) == O_RDONLY) {
         if (strlen(buffer) > 0) {
             strcat(buffer, "+");
         }
         strcat(buffer, "O_RDONLY");
     }
-    if ((flags & O_WRONLY) == O_WRONLY) {
+    if ((flags & O_ACCMODE) == O_WRONLY) {
         if (strlen(buffer) > 0) {
             strcat(buffer, "+");
         }
         strcat(buffer, "O_WRONLY");
     }
-    if ((flags & O_RDWR) == O_RDWR) {
+    if ((flags & O_ACCMODE) == O_RDWR) {
         if (strlen(buffer) > 0) {
             strcat(buffer, "+");
         }
@@ -1041,7 +1094,9 @@ FILE *fopen64(const char *pathname, const char *mode) {
     }
 
     // call the actual fopen64 function
-    return actual_fopen64(local_path, mode);
+    FILE *result = actual_fopen64(local_path, mode);
+    free(local_path);
+    return result;
 }
 
 FILE *fopen(const char *pathname, const char *mode) {
@@ -1070,7 +1125,9 @@ FILE *fopen(const char *pathname, const char *mode) {
     }
 
     // call the actual fopen function
-    return actual_fopen(local_path, mode);
+    FILE *result = actual_fopen(local_path, mode);
+    free(local_path);
+    return result;
 }
 
 FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
@@ -1100,7 +1157,9 @@ FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
     }
 
     // call the actual fopen function
-    return actual_freopen(local_path, mode, stream);
+    FILE *result = actual_freopen(local_path, mode, stream);
+    free(local_path);
+    return result;
 }
 
 FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
@@ -1132,17 +1191,30 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
     }
 
     // call the actual openat function
-    return actual_fopenat(dirfd, local_path, mode);
+    FILE *result = actual_fopenat(dirfd, local_path, mode);
+    free(local_path);
+    return result;
 }
 
-int open64(const char *pathname, int flags, mode_t mode) {
+int open64(const char *pathname, int flags, ...) {
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
-    char **func_args = create_array_of_strings(3, MAX_STRING_LEN);
+
+    int num_func_args = (flags & O_CREAT ? 3 : 2);
+    char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
     snprintf(func_args[1], MAX_STRING_LEN-1, "%d::%s", flags, map_flags_to_strings(flags));
-    snprintf(func_args[2], MAX_STRING_LEN-1, "%d::0%o", mode, mode);
-    log_call(__func__, 3, func_args);
-    free_array_of_strings(func_args, 3);
+
+    mode_t mode = 0;
+
+    if (flags & O_CREAT) {
+        va_list arg;
+        va_start(arg, flags);
+        mode = va_arg(arg, mode_t);
+        va_end(arg);
+        snprintf(func_args[2], MAX_STRING_LEN-1, "%d::0%o", mode, mode);
+    }
+    log_call(__func__, num_func_args, func_args);
+    free_array_of_strings(func_args, num_func_args);
 
     char *local_path;
     // check if pathname begins with "remote" prefixes (https, http, ftp)
@@ -1161,7 +1233,15 @@ int open64(const char *pathname, int flags, mode_t mode) {
         local_path = strdup(pathname);
     }
 
-    return actual_open64(local_path, flags, mode);
+    if (num_func_args == 3) {
+        int result = actual_open64(local_path, flags, mode);
+        free(local_path);
+        return result;
+    } else {
+        int result = actual_open64(local_path, flags);
+        free(local_path);
+        return result;
+    }
 }
 
 int openat(int dirfd, const char *pathname, int flags, ...) {
@@ -1253,8 +1333,12 @@ int open(const char *pathname, int flags, ...) {
     }
 
     if (num_func_args == 3) {
-      return actual_open(local_path, flags, mode);
+      int result = actual_open(local_path, flags, mode);
+      free(local_path);
+      return result;
     } else {
-      return actual_open(local_path, flags);
+      int result = actual_open(local_path, flags);
+      free(local_path);
+      return result;
     }
 }
