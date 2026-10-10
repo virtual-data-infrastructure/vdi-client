@@ -320,10 +320,11 @@ int download(const char *url, char **local_path) {
     if (pw == NULL) {
         username = strdup(STRING_CONST_USERNAME_ERROR);
     } else {
-        username = pw->pw_name;
+        username = strdup(pw->pw_name);
     }
     char path[MAX_PATH_LEN];
     snprintf(path, MAX_PATH_LEN-1, STRING_CONST_DOWNLOAD_BASE_DEFAULT, username);
+    free(username);
     download_base = strdup(path);
   }
   // determine download filename
@@ -338,11 +339,18 @@ int download(const char *url, char **local_path) {
     snprintf(tmp_filename, MAX_PATH_LEN-1, STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE, pid, epoch, STRING_CONST_DOWNLOAD_FILENAME_DEFAULT);
     local_filename = strdup(tmp_filename);
   }
-  char fullpath_local_file[MAX_PATH_LEN];
+  char *fullpath_local_file = (char *)malloc(MAX_PATH_LEN);
+  if (fullpath_local_file == NULL) {
+    free(download_base);
+    free(local_filename);
+    return ENOMEM;
+  }
   fullpath_local_file[0] = '\0';
   strcat(fullpath_local_file, download_base);
   strcat(fullpath_local_file, STRING_CONST_DIRECTORY_SEPARATOR);
   strcat(fullpath_local_file, local_filename);
+  free(download_base);
+  free(local_filename);
   *local_path = fullpath_local_file;
 
   // obtain directory from fullpath_local_file and make sure it exists
@@ -351,6 +359,7 @@ int download(const char *url, char **local_path) {
     char err_msg[MAX_STRING_LEN];
     snprintf(err_msg, MAX_STRING_LEN, "download dir '%s' does not exist or is not a directory", fullpath_directory);
     perror(err_msg);
+    free(fullpath_local_file);
     return EXIT_FAILURE;
   }
   debug(4, "created directory '%s' to download '%s'\n", fullpath_directory, fullpath_local_file);
@@ -368,6 +377,7 @@ int download(const char *url, char **local_path) {
           char err_msg[MAX_STRING_LEN];
           snprintf(err_msg, MAX_STRING_LEN, "Failed to open file '%s' for writing", fullpath_local_file);
           perror(err_msg);
+          free(fullpath_local_file);
           return error_code; // rather use some error code
       }
       
@@ -380,6 +390,7 @@ int download(const char *url, char **local_path) {
       res = curl_easy_perform(curl);
       if (res != CURLE_OK) {
           fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+          free(fullpath_local_file);
           return res; // rather use some error code
       }
 
@@ -395,9 +406,10 @@ char *expand_shell_vars(const char *str) {
     char buffer[MAX_BUFFER_SIZE];
     const char *src = str;
     char *dest = buffer;
+    char *dest_end = buffer + MAX_BUFFER_SIZE - 1;
     char varname[MAX_BUFFER_SIZE];
 
-    while (*src) {
+    while (*src && dest < dest_end) {
         if (*src == '$') {
             src++;
             char *var_start = varname;
@@ -418,7 +430,7 @@ char *expand_shell_vars(const char *str) {
 
             char *value = getenv(varname);
             if (value) {
-                while (*value) {
+                while (*value && dest < dest_end) {
                     *dest++ = *value++;
                 }
             }
@@ -923,19 +935,19 @@ char *map_flags_to_strings(int flags) {
     char *buffer = (char *)malloc(1024 * sizeof(char));
     buffer[0] = '\0';
 
-    if ((flags & O_RDONLY) == O_RDONLY) {
+    if ((flags & O_ACCMODE) == O_RDONLY) {
         if (strlen(buffer) > 0) {
             strcat(buffer, "+");
         }
         strcat(buffer, "O_RDONLY");
     }
-    if ((flags & O_WRONLY) == O_WRONLY) {
+    if ((flags & O_ACCMODE) == O_WRONLY) {
         if (strlen(buffer) > 0) {
             strcat(buffer, "+");
         }
         strcat(buffer, "O_WRONLY");
     }
-    if ((flags & O_RDWR) == O_RDWR) {
+    if ((flags & O_ACCMODE) == O_RDWR) {
         if (strlen(buffer) > 0) {
             strcat(buffer, "+");
         }
@@ -1041,7 +1053,9 @@ FILE *fopen64(const char *pathname, const char *mode) {
     }
 
     // call the actual fopen64 function
-    return actual_fopen64(local_path, mode);
+    FILE *result = actual_fopen64(local_path, mode);
+    free(local_path);
+    return result;
 }
 
 FILE *fopen(const char *pathname, const char *mode) {
@@ -1070,7 +1084,9 @@ FILE *fopen(const char *pathname, const char *mode) {
     }
 
     // call the actual fopen function
-    return actual_fopen(local_path, mode);
+    FILE *result = actual_fopen(local_path, mode);
+    free(local_path);
+    return result;
 }
 
 FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
@@ -1100,7 +1116,9 @@ FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
     }
 
     // call the actual fopen function
-    return actual_freopen(local_path, mode, stream);
+    FILE *result = actual_freopen(local_path, mode, stream);
+    free(local_path);
+    return result;
 }
 
 FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
@@ -1132,7 +1150,9 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
     }
 
     // call the actual openat function
-    return actual_fopenat(dirfd, local_path, mode);
+    FILE *result = actual_fopenat(dirfd, local_path, mode);
+    free(local_path);
+    return result;
 }
 
 int open64(const char *pathname, int flags, mode_t mode) {
@@ -1161,7 +1181,9 @@ int open64(const char *pathname, int flags, mode_t mode) {
         local_path = strdup(pathname);
     }
 
-    return actual_open64(local_path, flags, mode);
+    int result = actual_open64(local_path, flags, mode);
+    free(local_path);
+    return result;
 }
 
 int openat(int dirfd, const char *pathname, int flags, ...) {
@@ -1253,8 +1275,12 @@ int open(const char *pathname, int flags, ...) {
     }
 
     if (num_func_args == 3) {
-      return actual_open(local_path, flags, mode);
+      int result = actual_open(local_path, flags, mode);
+      free(local_path);
+      return result;
     } else {
-      return actual_open(local_path, flags);
+      int result = actual_open(local_path, flags);
+      free(local_path);
+      return result;
     }
 }
