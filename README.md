@@ -283,20 +283,97 @@ connection between GitHub and PyPI:
 No API tokens or secrets are needed. Authentication is handled entirely
 through the OIDC token exchange between GitHub Actions and PyPI.
 
-#### Creating a release
+#### Preparing a release
 
-```bash
-git checkout main
-git pull origin main
-git tag v0.1.0
-git push origin v0.1.0
-```
+1. Ensure `main` is up to date and all planned PRs are merged:
 
-The release workflow will:
+   ```bash
+   git checkout main
+   git pull origin main
+   ```
 
-1. Build a platform wheel for each architecture in the matrix
-   (currently `x86_64`; `aarch64` and `riscv64` can be added later).
-2. Publish all wheels to PyPI under the `pypi` environment.
+2. Update `CHANGELOG.md` with a new version section.
+
+   > [!NOTE]
+   > The version header format `## [X.Y.Z] - YYYY-MM-DD` is required by
+   > `.github/scripts/extract_changelog.py` for automatic release-note
+   > generation.
+
+   ```markdown
+   ## [X.Y.Z] - 2026-10-10
+
+   ### Added
+   - Description of new feature (#PR)
+
+   ### Changed
+   - Description of change (#PR)
+   ```
+
+3. Commit and push the changelog update, then open a PR to `main`:
+
+   ```bash
+   git checkout -b release_vX.Y.Z
+   git add CHANGELOG.md
+   git commit -m "Update CHANGELOG.md for release vX.Y.Z"
+   git push origin release_vX.Y.Z
+   ```
+
+4. After the PR is merged, update `main` and tag the release:
+
+   ```bash
+   git checkout main
+   git pull origin main
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+   Pushing the tag triggers the release workflow in
+   `.github/workflows/release.yml`.
+
+5. Clean up the release branch:
+
+   ```bash
+   git branch -d release_vX.Y.Z
+   git push origin :release_vX.Y.Z
+   ```
+
+#### What the release workflow does
+
+1. Build a fat wheel for each architecture in the matrix (`x86_64` and
+   `aarch64`), bundling `libvdi_eessi*.so` for all supported EESSI
+   versions.
+2. Test each wheel against every EESSI version for both architectures.
+3. Publish all wheels to PyPI under the `pypi` environment (requires
+   approval if reviewers are configured).
+4. Create a GitHub Release with changelog-derived release notes and
+   wheel assets attached.
 
 After the workflow completes, the new version is installable via
 `pip install vdi-client` or `uv pip install vdi-client`.
+
+#### Verifying a release
+
+After the workflow completes, verify the release from PyPI:
+
+```bash
+python3 -m venv /tmp/vdi-test-release
+source /tmp/vdi-test-release/bin/activate
+pip install --upgrade pip
+pip install vdi-client
+vdi --version
+vdi --help
+deactivate
+rm -rf /tmp/vdi-test-release
+```
+
+#### Creating a release manually
+
+If the release workflow fails after the tag is pushed, the release can be
+created manually on GitHub:
+
+1. Download the wheel artifacts from the workflow run page.
+2. Go to the repository **Releases** -> **Draft a new release**.
+3. Select the pushed tag.
+4. Set the title to `vX.Y.Z`.
+5. Copy the relevant section from `CHANGELOG.md` into the description.
+6. Upload the wheel files and publish the release.
