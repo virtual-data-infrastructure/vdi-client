@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 name = "vdi-client"
 dynamic = ["version"]
 description = "VDI client - client tools for the virtual data infrastructure"
-readme = "README.md"
+readme = "PYPI.md"
 requires-python = ">=3.9"
 license = "GPL-2.0-only"
 authors = [

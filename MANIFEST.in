@@ -1,0 +1,2 @@
+include PYPI.md
+recursive-include docs/assets *
