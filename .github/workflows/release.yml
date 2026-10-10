@@ -137,45 +137,10 @@ jobs:
           name: wheel-${{ matrix.arch }}
           path: wheel
 
-      - name: Install wheel into venv using EESSI compat-layer Python
-        run: |
-          # Use the EESSI compat-layer Python to avoid glibc mismatches
-          # between the GitHub toolcache Python and EESSI's compat layer.
-          EESSI_PYTHON="${EESSI_EPREFIX}/usr/bin/python"
-          "$EESSI_PYTHON" -m venv /tmp/test-vdi
-          /tmp/test-vdi/bin/pip install --upgrade pip
-          /tmp/test-vdi/bin/pip install wheel/*.whl
-
-      - name: Test CLI basics
-        run: |
-          /tmp/test-vdi/bin/vdi --version
-          /tmp/test-vdi/bin/vdi --help
-          /tmp/test-vdi/bin/vdi run --dry-run cat /etc/hostname
-
-      - name: Test run with LD_PRELOAD and log creation
+      - name: Install and test wheel
         env:
           VDI_LOG_DIR: /tmp/vdi-test-logs
-        run: |
-          mkdir -p /tmp/vdi-test-logs
-          /tmp/test-vdi/bin/vdi run cat /etc/hostname
-          # Verify a log file was created
-          log_count=$(find /tmp/vdi-test-logs -name '*.log' | wc -l)
-          if [ "$log_count" -eq 0 ]; then
-            echo "Error: no log file was created"
-            exit 1
-          fi
-          echo "Log file(s) created: $log_count"
-
-      - name: Test log subcommands
-        env:
-          VDI_LOG_DIR: /tmp/vdi-test-logs
-        run: |
-          /tmp/test-vdi/bin/vdi log list
-          /tmp/test-vdi/bin/vdi log list --long
-          # Get the PID from the first log file and show its contents
-          pid=$(find /tmp/vdi-test-logs -name 'vdi_log.*.log' -exec basename {} .log \; | head -1 | sed 's/vdi_log\.//')
-          echo "Showing log for PID: $pid"
-          /tmp/test-vdi/bin/vdi log show "$pid"
+        run: .github/scripts/test-wheel.sh
 
   build-riscv64:
     name: Build fat wheel (riscv64)
@@ -275,34 +240,9 @@ jobs:
               source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
               module load EESSI/2026.06
 
-              # Install wheel into venv using EESSI compat-layer Python
-              eessi_python="${EESSI_EPREFIX}/usr/bin/python"
-              "$eessi_python" -m venv /tmp/test-vdi
-              /tmp/test-vdi/bin/pip install --upgrade pip
-              /tmp/test-vdi/bin/pip install wheel/*.whl
-
-              # Test CLI basics
-              /tmp/test-vdi/bin/vdi --version
-              /tmp/test-vdi/bin/vdi --help
-              /tmp/test-vdi/bin/vdi run --dry-run cat /etc/hostname
-
-              # Test run with LD_PRELOAD and log creation
-              mkdir -p /tmp/vdi-test-logs
+              # Install and test wheel
               export VDI_LOG_DIR=/tmp/vdi-test-logs
-              /tmp/test-vdi/bin/vdi run cat /etc/hostname
-              log_count=$(find /tmp/vdi-test-logs -name "*.log" | wc -l)
-              if [ "$log_count" -eq 0 ]; then
-                echo "Error: no log file was created"
-                exit 1
-              fi
-              echo "Log file(s) created: $log_count"
-
-              # Test log subcommands
-              /tmp/test-vdi/bin/vdi log list
-              /tmp/test-vdi/bin/vdi log list --long
-              pid=$(find /tmp/vdi-test-logs -name "vdi_log.*.log" -exec basename {} .log \; | head -1 | sed "s/vdi_log\.//")
-              echo "Showing log for PID: $pid"
-              /tmp/test-vdi/bin/vdi log show "$pid"
+              .github/scripts/test-wheel.sh
             '
 
   publish:
