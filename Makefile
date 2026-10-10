@@ -83,15 +83,15 @@ build-wheel: copy-versioned-libs
 	echo "Building wheel for platform: $$PLAT_NAME"; \
 	if [ -x "$(BUILD_VENV)/bin/python" ]; then \
 		echo "Using existing virtual environment at $(BUILD_VENV) ..."; \
-		$(BUILD_VENV)/bin/python -m build --wheel -C--build-option=--plat_name=$$PLAT_NAME; \
+		$(BUILD_VENV)/bin/python -m build --wheel -C--build-option=--plat-name=$$PLAT_NAME; \
 	elif command -v python >/dev/null 2>&1 && python -c "import build.__main__" 2>/dev/null; then \
-		python -m build --wheel -C--build-option=--plat_name=$$PLAT_NAME; \
+		python -m build --wheel -C--build-option=--plat-name=$$PLAT_NAME; \
 	else \
 		echo "No 'build' module found; creating temporary virtual environment at $(BUILD_VENV) ..."; \
 		python -m venv $(BUILD_VENV); \
 		$(BUILD_VENV)/bin/python -m pip install --quiet --upgrade pip; \
 		$(BUILD_VENV)/bin/python -m pip install --quiet build; \
-		$(BUILD_VENV)/bin/python -m build --wheel -C--build-option=--plat_name=$$PLAT_NAME; \
+		$(BUILD_VENV)/bin/python -m build --wheel -C--build-option=--plat-name=$$PLAT_NAME; \
 		rm -rf $(BUILD_VENV); \
 		echo "To use a persistent venv, see the comment above the build-wheel target in the Makefile."; \
 	fi
