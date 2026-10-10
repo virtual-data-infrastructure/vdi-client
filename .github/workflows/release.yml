@@ -7,7 +7,7 @@
 # publishing them to PyPI. Triggered by tag pushes matching 'v*'.
 #
 # Each architecture produces a single fat wheel containing libvdi_eessi*.so
-# for every supported EESSI version (2023.06, 2025.06, 2026.06). At runtime
+# for every supported EESSI version (defined in EESSI_VERSIONS below). At runtime
 # the CLI detects the active EESSI version from EESSI_EPREFIX and selects
 # the matching shared library.
 
@@ -23,6 +23,11 @@ on:
 permissions:
   contents: read
   id-token: write
+
+env:
+  # Single source of truth for supported EESSI versions.
+  # To add/remove a version, edit only this list.
+  EESSI_VERSIONS: '["2023.06", "2025.06", "2026.06"]'
 
 jobs:
   build:
@@ -46,7 +51,7 @@ jobs:
       - name: Mount EESSI CernVM-FS repository
         uses: eessi/github-action-eessi@834df09f7d60de47f10a7cbf59b470d69b9e2852 # v3.4.0
         with:
-          eessi_stack_version: '2023.06'
+          eessi_stack_version: '${{ fromJson(env.EESSI_VERSIONS)[0] }}'
 
       - name: Build versioned libraries for all EESSI versions
         run: |
@@ -73,16 +78,12 @@ jobs:
             deactivate
           }
 
-          # First version is already initialized by the EESSI action
-          build_one "2023.06"
-
-          # Switch to 2025.06
-          module load EESSI/2025.06
-          build_one "2025.06"
-
-          # Switch to 2026.06
-          module load EESSI/2026.06
-          build_one "2026.06"
+          # Reset module state so every iteration is handled uniformly.
+          module purge
+          for version in $(echo "$EESSI_VERSIONS" | jq -r '.[]'); do
+            module load "EESSI/${version}"
+            build_one "$version"
+          done
 
           # Build the fat wheel (does not require EESSI, just Python)
           # Use the last active EESSI Python for the venv
@@ -104,25 +105,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        arch:
+          - x86_64
+          - aarch64
+        eessi_version: ${{ fromJson(env.EESSI_VERSIONS) }}
         include:
           - arch: x86_64
             runner: ubuntu-24.04
-            eessi_version: '2023.06'
-          - arch: x86_64
-            runner: ubuntu-24.04
-            eessi_version: '2025.06'
-          - arch: x86_64
-            runner: ubuntu-24.04
-            eessi_version: '2026.06'
           - arch: aarch64
             runner: ubuntu-24.04-arm
-            eessi_version: '2023.06'
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-            eessi_version: '2025.06'
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-            eessi_version: '2026.06'
 
     steps:
       - name: Mount EESSI CernVM-FS repository
