@@ -51,6 +51,9 @@ jobs:
               # Initialize EESSI 2026.06 (only version supporting riscv64)
               export EESSI_NO_MODULE_PURGE_ON_INIT=1
               export PS1=
+              export LD_LIBRARY_PATH=
+              export EESSI_SOFTWARE_SUBDIR=
+              export EESSI_ACCEL_SUBDIR=
               source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
 
               # Build the versioned library
