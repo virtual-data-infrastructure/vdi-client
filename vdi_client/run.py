@@ -10,22 +10,46 @@ via ``LD_PRELOAD`` so that file-system calls are intercepted and logged.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
 # Environment variable that may override the default library path.
 VDI_LIB_PATH_ENV = "VDI_LIB_PATH"
 
+# Pattern to extract the EESSI version from an EESSI_EPREFIX path such as
+# /cvmfs/software.eessi.io/versions/2023.06/compat/linux/x86_64
+_EESSI_VERSION_RE = re.compile(r"/versions/(\d{4}\.\d{2})/")
+
+
+def _detect_eessi_version() -> str | None:
+    """Detect the active EESSI version from the ``EESSI_EPREFIX`` env var.
+
+    Returns:
+        The EESSI version string (e.g. ``"2023.06"``) or ``None`` if the
+        environment variable is not set or the version cannot be parsed.
+    """
+    eprefix = os.environ.get("EESSI_EPREFIX")
+    if not eprefix:
+        return None
+    match = _EESSI_VERSION_RE.search(eprefix)
+    return match.group(1) if match else None
+
 
 def resolve_lib_path(lib_override: str | None = None) -> Path:
-    """Resolve the path to ``libvdi.so``.
+    """Resolve the path to the VDI shared library.
 
     The lookup order is:
 
     1. Explicit ``lib_override`` (from ``--lib`` flag).
     2. ``VDI_LIB_PATH`` environment variable.
-    3. ``<package_dir>/lib/libvdi.so`` (wheel-bundled location).
-    4. ``<package_dir>/../lib64/libvdi.so`` (development layout, matches the bash script).
+    3. ``<package_dir>/lib/libvdi_eessi{version}.so`` - the versioned
+       library matching the active EESSI version (detected from
+       ``EESSI_EPREFIX``), bundled in a fat wheel.
+    4. ``<package_dir>/lib/libvdi.so`` - unversioned fallback (dev layout
+       or single-version wheel).
+    5. ``<package_dir>/../lib64/libvdi.so`` - development layout, matches
+       the bash script.
 
     Args:
         lib_override: Optional explicit path passed on the command line.
@@ -44,13 +68,29 @@ def resolve_lib_path(lib_override: str | None = None) -> Path:
             candidate = Path(env_path)
         else:
             package_dir = Path(__file__).resolve().parent
-            # Try wheel-bundled location first, then development layout
-            wheel_candidate = package_dir / "lib" / "libvdi.so"
-            dev_candidate = package_dir / ".." / "lib64" / "libvdi.so"
+            lib_dir = package_dir / "lib"
+
+            # Try versioned library matching the active EESSI version
+            eessi_version = _detect_eessi_version()
+            if eessi_version:
+                versioned_candidate = lib_dir / f"libvdi_eessi{eessi_version}.so"
+                if versioned_candidate.is_file():
+                    candidate = versioned_candidate
+                    candidate = candidate.resolve()
+                    if not candidate.is_file():
+                        raise FileNotFoundError(
+                            f"VDI shared library not found at '{candidate}'. "
+                            f"Set the {VDI_LIB_PATH_ENV} environment variable or use --lib to specify its location."
+                        )
+                    return candidate
+
+            # Fall back to unversioned library in wheel layout
+            wheel_candidate = lib_dir / "libvdi.so"
             if wheel_candidate.is_file():
                 candidate = wheel_candidate
             else:
-                candidate = dev_candidate
+                # Development layout
+                candidate = package_dir / ".." / "lib64" / "libvdi.so"
 
     candidate = candidate.resolve()
     if not candidate.is_file():

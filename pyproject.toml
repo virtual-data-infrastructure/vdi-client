@@ -62,6 +62,7 @@ dev = [
 [project.scripts]
 vdi = "vdi_client.cli:main"
 
+
 [project.urls]
 Homepage = "https://github.com/virtual-data-infrastructure/vdi-client"
 Documentation = "https://github.com/virtual-data-infrastructure/vdi-client"
@@ -224,4 +225,4 @@ line-ending = "auto"
 include = ["vdi_client", "vdi_client.*"]
 
 [tool.setuptools.package-data]
-"vdi_client.lib" = ["libvdi.so"]
+"vdi_client.lib" = ["libvdi_eessi*.so"]
