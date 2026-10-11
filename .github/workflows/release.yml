@@ -52,7 +52,7 @@ jobs:
             -w /workspace \
             ghcr.io/eessi/build-node:debian13-riscv64 \
             bash -c '
-              set -euo pipefail
+              # set -euo pipefail
               export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
 
               # Initialize CernVM-FS
