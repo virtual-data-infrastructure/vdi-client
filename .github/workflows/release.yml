@@ -23,118 +23,9 @@ on:
 # OIDC trusted publishing requires write access for the id-token.
 permissions:
   contents: read
-  # id-token: write
+  id-token: write
 
 jobs:
-  build-riscv64:
-    name: Build fat wheel (riscv64)
-    runs-on: ubuntu-24.04
-    # continue-on-error: true
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        with:
-          fetch-depth: 0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-        with:
-          platforms: riscv64
-
-      - name: Build versioned library and wheel inside riscv64 container
-        run: |
-          docker run --rm \
-            --platform linux/riscv64 \
-            --privileged \
-            --device /dev/fuse \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            ghcr.io/eessi/build-node:debian13-riscv64 \
-            bash -c '
-              set -euo pipefail
-              export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
-
-              # Initialize CernVM-FS
-              mkdir -p /var/run/cvmfs /var/lib/cvmfs
-              cvmfs_config setup
-              sleep 5
-              mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
-
-              # Initialize EESSI 2026.06 (only version supporting riscv64)
-              # EESSI init script is not 'set -u' safe, so relax it around the source
-              set +u
-              source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
-              set -u
-
-              # Build the versioned library
-              make install-library-versioned EESSI_VERSION="2026.06"
-
-              # Build the fat wheel using EESSI compat-layer Python
-              eessi_python="${EESSI_EPREFIX}/usr/bin/python"
-              rm -rf .build-venv
-              "$eessi_python" -m venv .build-venv
-              source .build-venv/bin/activate
-              pip install --quiet --upgrade pip
-              pip install --quiet build
-              make build-wheel
-              deactivate
-            '
-
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: wheel-riscv64
-          path: dist/*.whl
-          if-no-files-found: error
-
-  test-riscv64:
-    name: Test fat wheel (riscv64, EESSI 2026.06)
-    needs: build-riscv64
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-
-    steps:
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-        with:
-          platforms: riscv64
-
-      - name: Download wheel artifact
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: wheel-riscv64
-          path: wheel
-
-      - name: Test wheel inside riscv64 container
-        run: |
-          docker run --rm \
-            --platform linux/riscv64 \
-            --privileged \
-            --device /dev/fuse \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            ghcr.io/eessi/build-node:debian13-riscv64 \
-            bash -c '
-              set -euo pipefail
-              export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
-
-              # Initialize CernVM-FS
-              mkdir -p /var/run/cvmfs /var/lib/cvmfs
-              cvmfs_config setup
-              mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
-
-              # Initialize EESSI 2026.06
-              # EESSI init script is not 'set -u' safe, so relax it around the source
-              set +u
-              source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
-              set -u
-
-              # Install and test wheel
-              export VDI_LOG_DIR=/tmp/vdi-test-logs
-              .github/scripts/test-wheel.sh
-            '
-
   build:
     name: Build fat wheel (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -250,6 +141,114 @@ jobs:
         env:
           VDI_LOG_DIR: /tmp/vdi-test-logs
         run: .github/scripts/test-wheel.sh
+
+  build-riscv64:
+    name: Build fat wheel (riscv64)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: riscv64
+
+      - name: Build versioned library and wheel inside riscv64 container
+        run: |
+          docker run --rm \
+            --platform linux/riscv64 \
+            --privileged \
+            --device /dev/fuse \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ghcr.io/eessi/build-node:debian13-riscv64 \
+            bash -c '
+              set -euo pipefail
+              export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
+
+              # Initialize CernVM-FS
+              mkdir -p /var/run/cvmfs /var/lib/cvmfs
+              cvmfs_config setup
+              mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
+
+              # Initialize EESSI 2026.06 (only version supporting riscv64)
+              # EESSI init script is not "set -u" safe, so relax it around the source
+              set +u
+              source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
+              set -u
+
+              # Build the versioned library
+              make install-library-versioned EESSI_VERSION="2026.06"
+
+              # Build the fat wheel using EESSI compat-layer Python
+              eessi_python="${EESSI_EPREFIX}/usr/bin/python"
+              rm -rf .build-venv
+              "$eessi_python" -m venv .build-venv
+              source .build-venv/bin/activate
+              pip install --quiet --upgrade pip
+              pip install --quiet build
+              make build-wheel
+              deactivate
+            '
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheel-riscv64
+          path: dist/*.whl
+          if-no-files-found: error
+
+  test-riscv64:
+    name: Test fat wheel (riscv64, EESSI 2026.06)
+    needs: build-riscv64
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: riscv64
+
+      - name: Download wheel artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-riscv64
+          path: wheel
+
+      - name: Test wheel inside riscv64 container
+        run: |
+          docker run --rm \
+            --platform linux/riscv64 \
+            --privileged \
+            --device /dev/fuse \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ghcr.io/eessi/build-node:debian13-riscv64 \
+            bash -c '
+              set -euo pipefail
+              export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
+
+              # Initialize CernVM-FS
+              mkdir -p /var/run/cvmfs /var/lib/cvmfs
+              cvmfs_config setup
+              mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
+
+              # Initialize EESSI 2026.06
+              # EESSI init script is not "set -u" safe, so relax it around the source
+              set +u
+              source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
+              set -u
+
+              # Install and test wheel
+              export VDI_LOG_DIR=/tmp/vdi-test-logs
+              .github/scripts/test-wheel.sh
+            '
 
   publish:
     name: Publish to PyPI
