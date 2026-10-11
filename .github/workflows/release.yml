@@ -126,6 +126,11 @@ jobs:
             eessi_version: '2026.06'
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
       - name: Mount EESSI CernVM-FS repository
         uses: eessi/github-action-eessi@834df09f7d60de47f10a7cbf59b470d69b9e2852 # v3.4.0
         with:
@@ -210,6 +215,11 @@ jobs:
     continue-on-error: true
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
         with:
