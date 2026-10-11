@@ -76,10 +76,11 @@ endif
 # The persistent venv will be detected and reused; remove it with
 # 'rm -rf $(BUILD_VENV)' or 'make clean-wheel'.
 build-wheel: copy-versioned-libs
+	# riscv64 uses manylinux_2_43 (glibc 2.43 from EESSI 2026.06 compat layer)
 	@UNAME_M=$$(uname -m); \
 	if [ "$$UNAME_M" = "x86_64" ]; then PLAT_NAME=manylinux2014_x86_64; \
 	elif [ "$$UNAME_M" = "aarch64" ] || [ "$$UNAME_M" = "arm64" ]; then PLAT_NAME=manylinux2014_aarch64; \
-	elif [ "$$UNAME_M" = "riscv64" ]; then PLAT_NAME=linux_riscv64; \
+	elif [ "$$UNAME_M" = "riscv64" ]; then PLAT_NAME=manylinux_2_43_riscv64; \
 	else echo "Unsupported architecture: $$UNAME_M"; exit 1; fi; \
 	echo "Building wheel for platform: $$PLAT_NAME"; \
 	if [ -x "$(BUILD_VENV)/bin/python" ]; then \
