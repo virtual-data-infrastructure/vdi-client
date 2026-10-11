@@ -23,7 +23,7 @@ on:
 # OIDC trusted publishing requires write access for the id-token.
 permissions:
   contents: read
-  id-token: write
+  # id-token: write
 
 jobs:
   build-riscv64:
@@ -52,12 +52,13 @@ jobs:
             -w /workspace \
             ghcr.io/eessi/build-node:debian13-riscv64 \
             bash -c '
-              # set -euo pipefail
+              set -euo pipefail
               export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
 
               # Initialize CernVM-FS
               mkdir -p /var/run/cvmfs /var/lib/cvmfs
               cvmfs_config setup
+              sleep 5
               mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
 
               # Initialize EESSI 2026.06 (only version supporting riscv64)
