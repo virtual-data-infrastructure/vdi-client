@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0] - 2026-10-11
+
+This release adds `riscv64` architecture support and improves the release
+pipeline. Wheels are now published to PyPI for x86_64, aarch64, and riscv64,
+bundling support for EESSI 2023.06, 2025.06, and 2026.06 (riscv64 only
+supports EESSI 2026.06).
+Available on [PyPI](https://pypi.org/project/vdi-client/).
+
+### Added
+
+- `riscv64` architecture support: build and test `manylinux2014_riscv64`
+  fat wheels via QEMU emulation using the EESSI `debian13-riscv64`
+  build-node container with CernVM-FS (#56, #57)
+- Shared wheel test script (`.github/scripts/test-wheel.sh`) reused by
+  both regular and riscv64 test jobs (#57)
+- Logo on PyPI project page (#54)
+
+### Changed
+
+- Simplify pipeline dependencies: `publish` depends only on test jobs,
+  `release` depends only on `publish` (#57)
+- Add `actions/checkout` to test jobs that were missing it (#57)
+- Rework PyPI project page description (#54)
+
+
 ## [0.1.1] - 2026-10-10
 
 This is minor bug fix release of the vdi-client.
