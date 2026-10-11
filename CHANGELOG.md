@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1] - 2026-10-12
+
+Bug fix release correcting the riscv64 wheel platform tag so it is accepted
+by PyPI.
+Available on [PyPI](https://pypi.org/project/vdi-client/).
+
+### Fixed
+
+- Use `manylinux_2_43_riscv64` platform tag for riscv64 wheels (glibc 2.43
+  from EESSI 2026.06 compat layer); previous tags `manylinux2014_riscv64`
+  and `linux_riscv64` were rejected by PyPI
+
+
 ## [0.2.0] - 2026-10-11
 
 This release adds `riscv64` architecture support and improves the release
@@ -10,9 +23,9 @@ Available on [PyPI](https://pypi.org/project/vdi-client/).
 
 ### Added
 
-- `riscv64` architecture support: build and test `manylinux2014_riscv64`
-  fat wheels via QEMU emulation using the EESSI `debian13-riscv64`
-  build-node container with CernVM-FS (#56, #57)
+- `riscv64` architecture support: build and test
+  `manylinux_2_43_riscv64` fat wheels via QEMU emulation using the EESSI
+  `debian13-riscv64` build-node container with CernVM-FS (#56, #57)
 - Shared wheel test script (`.github/scripts/test-wheel.sh`) reused by
   both regular and riscv64 test jobs (#57)
 - Logo on PyPI project page (#54)
