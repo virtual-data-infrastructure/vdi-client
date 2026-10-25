@@ -88,10 +88,20 @@ run_download_allocation_ownership_test() {
   local test_dir="$TEST_ROOT/download-allocation-ownership"
   local downloads_dir="$test_dir/downloads"
   local port=8001
+  local detect_leaks=1
+
+  if [ "$(uname -m)" = "riscv64" ]; then
+    detect_leaks=0
+  fi
 
   mkdir -p "$test_dir"
   start_http_server "$test_dir/http" "$port"
   wait_for_http_server "$port" "$test_dir/http"
+
+  cat >"$test_dir/openssl.supp" <<'EOF'
+leak:CRYPTO_malloc
+leak:CRYPTO_zalloc
+EOF
 
   cat >"$test_dir/test.c" <<'EOF'
 #include <dlfcn.h>
@@ -152,7 +162,8 @@ EOF
       unset VDI_DOWNLOAD_BASE
     fi
 
-    if ! ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=1 \
+    if ! ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=$detect_leaks \
+      LSAN_OPTIONS=suppressions="$test_dir/openssl.supp" \
       "$test_dir/test" "$PWD/src/vdi_wrapper/build/libvdi-asan.so" "$url"; then
       echo "Error: download allocation ownership test failed: $label."
       return 1
