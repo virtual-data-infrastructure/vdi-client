@@ -485,22 +485,37 @@ int free_array_of_strings(char **array, int num_strings) {
 char* get_log_path(void) {
     pid_t pid = getpid();
     char *log_path = (char *)malloc(MAX_PATH_LEN * sizeof(char));
-    log_path[0] = '\0';
-    char *env_vdi_log_dir = getenv(STRING_CONST_ENVVAR_VDI_LOG_DIR);
-    if (env_vdi_log_dir == NULL) {
-        // if no directory set use ${HOME}/.vdi/logs
-        env_vdi_log_dir = expand_shell_vars(STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_DIR);
-    } else {
-        env_vdi_log_dir = expand_shell_vars(env_vdi_log_dir);
-    }
-    char *env_vdi_log_file_prefix = getenv(STRING_CONST_ENVVAR_VDI_LOG_FILE_PREFIX);
-    if (env_vdi_log_file_prefix == NULL) {
-        env_vdi_log_file_prefix = (char *)STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_FILE_PREFIX;
-    } else {
-        env_vdi_log_file_prefix = expand_shell_vars(env_vdi_log_file_prefix);
+    if (log_path == NULL) {
+        return NULL;
     }
 
-    snprintf(log_path, MAX_PATH_LEN, "%s/%s%d.log", env_vdi_log_dir, env_vdi_log_file_prefix, pid);
+    const char *env_vdi_log_dir = getenv(STRING_CONST_ENVVAR_VDI_LOG_DIR);
+    char *expanded_log_dir = NULL;
+    if (env_vdi_log_dir == NULL) {
+        // if no directory set use ${HOME}/.vdi/logs
+        expanded_log_dir = expand_shell_vars(STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_DIR);
+    } else {
+        expanded_log_dir = expand_shell_vars(env_vdi_log_dir);
+    }
+
+    const char *env_vdi_log_file_prefix = getenv(STRING_CONST_ENVVAR_VDI_LOG_FILE_PREFIX);
+    char *expanded_log_file_prefix = NULL;
+    if (env_vdi_log_file_prefix == NULL) {
+        expanded_log_file_prefix = strdup(STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_FILE_PREFIX);
+    } else {
+        expanded_log_file_prefix = expand_shell_vars(env_vdi_log_file_prefix);
+    }
+
+    if (expanded_log_dir == NULL || expanded_log_file_prefix == NULL) {
+        free(expanded_log_dir);
+        free(expanded_log_file_prefix);
+        free(log_path);
+        return NULL;
+    }
+
+    snprintf(log_path, MAX_PATH_LEN, "%s/%s%d.log", expanded_log_dir, expanded_log_file_prefix, pid);
+    free(expanded_log_dir);
+    free(expanded_log_file_prefix);
     return log_path;
 }
 
@@ -572,6 +587,12 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     pthread_mutex_lock(&_log_mutex);
 
     char *log_path = get_log_path();
+    if (log_path == NULL) {
+        perror("Failed to allocate log path");
+        pthread_mutex_unlock(&_log_mutex);
+        return EXIT_FAILURE;
+    }
+
     if (_global_show_log_path) {
         debug(1, "using log file '%s'\n", log_path);
         _global_show_log_path = false;
