@@ -322,8 +322,9 @@ int download(const char *url, char **local_path) {
   //   whether it exists, so then also need flags/mode from open call
 
   // determine download base dir
-  char *download_base = getenv(STRING_CONST_ENVVAR_VDI_DOWNLOAD_BASE);
-  if (download_base == NULL) {
+  const char *download_base_env = getenv(STRING_CONST_ENVVAR_VDI_DOWNLOAD_BASE);
+  char *download_base = NULL;
+  if (download_base_env == NULL) {
     char *username = NULL;
     uid_t uid = getuid();
     // get the password record for the current user
@@ -337,10 +338,13 @@ int download(const char *url, char **local_path) {
     snprintf(path, MAX_PATH_LEN-1, STRING_CONST_DOWNLOAD_BASE_DEFAULT, username);
     free(username);
     download_base = strdup(path);
+  } else {
+    download_base = strdup(download_base_env);
   }
   // determine download filename
-  char *local_filename = (char *) get_filename_from_url(url);
-  if (local_filename == NULL) {
+  const char *url_filename = get_filename_from_url(url);
+  char *local_filename = NULL;
+  if (url_filename == NULL) {
     // use alternative approach with STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE
     // for which we need the process id, the epoch and a default filename
     char tmp_filename[MAX_PATH_LEN];
@@ -349,6 +353,13 @@ int download(const char *url, char **local_path) {
     time_t epoch = time(NULL);
     snprintf(tmp_filename, MAX_PATH_LEN-1, STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE, pid, epoch, STRING_CONST_DOWNLOAD_FILENAME_DEFAULT);
     local_filename = strdup(tmp_filename);
+  } else {
+    local_filename = strdup(url_filename);
+  }
+  if (download_base == NULL || local_filename == NULL) {
+    free(download_base);
+    free(local_filename);
+    return ENOMEM;
   }
   char *fullpath_local_file = (char *)malloc(MAX_PATH_LEN);
   if (fullpath_local_file == NULL) {
