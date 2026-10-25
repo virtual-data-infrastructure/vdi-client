@@ -39,6 +39,13 @@ $(BIN_DIR)/$(SCRIPT): $(SCRIPT)
 install-library:
 	$(MAKE) -C $(VDI_SRCS_DIR) install
 
+# build sanitizer-instrumented copies of the shared library for verification
+asan:
+	$(MAKE) -C $(VDI_SRCS_DIR) compile-asan
+
+tsan:
+	$(MAKE) -C $(VDI_SRCS_DIR) compile-tsan
+
 # compile and install the shared library with an EESSI-versioned filename
 # (e.g. libvdi_eessi2023.06.so). Requires EESSI to be initialized and
 # EESSI_VERSION to be set. The subdirectory Makefile builds libvdi.so
@@ -131,4 +138,4 @@ clean-wheel:
 clean-all: clean clean-install clean-wheel
 
 # phony targets
-.PHONY: all install install-script install-library install-library-versioned build-wheel copy-versioned-libs clean clean-install clean-wheel clean-all
+.PHONY: all install install-script install-library asan tsan install-library-versioned build-wheel copy-versioned-libs clean clean-install clean-wheel clean-all

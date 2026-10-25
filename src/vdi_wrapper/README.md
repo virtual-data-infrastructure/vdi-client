@@ -25,6 +25,32 @@ is initialized and whether the compiler from the compatibility layer in EESSI
 will be used. If either check fails, the `Makefile` exits and prints some
 guidance to resolve the issue.
 
+### Sanitizer builds
+
+Two additional targets build instrumented copies of the shared library for
+verification:
+
+```bash
+make compile-asan   # builds build/libvdi-asan.so
+make compile-tsan   # builds build/libvdi-tsan.so
+```
+
+`AddressSanitizer` (`ASan`) detects memory errors such as buffer overflows,
+use-after-free, use-after-return, and leaks. `ThreadSanitizer` (`TSan`) detects
+data races and other thread-safety issues.
+
+When using either library, compile the test program with the matching sanitizer
+flags and preload the instrumented library:
+
+```bash
+gcc -fsanitize=address -g -O0 -o /tmp/test /tmp/test.c
+LD_PRELOAD=build/libvdi-asan.so /tmp/test
+```
+
+The normal `make` target remains unchanged and produces the production
+`libvdi.so`. Run `make clean` to remove all build artifacts, including the
+sanitizer libraries.
+
 ## Using the wrapper library
 
 The wrapper library can be used by setting `LD_PRELOAD` to the path of the
