@@ -21,23 +21,15 @@ make asan
 TEST_ROOT=$(mktemp -d)
 HTTP_PID=""
 
-cleanup() {
-  if [ -n "$HTTP_PID" ]; then
-    kill "$HTTP_PID" 2>/dev/null || true
-  fi
-  rm -rf "$TEST_ROOT"
-}
-trap cleanup EXIT
+start_http_server() {
+  local server_dir=$1
+  local port=$2
 
-run_download_return_path_test() {
-  # This test focuses on the returned download path by:
-  # - VDI_DOWNLOAD_BASE is unset, so download_base is heap-allocated.
-  # - The URL has no filename, so local_filename is heap-allocated.
-  # - LeakSanitizer is disabled, while ASan memory-error checks remain enabled.
-  mkdir -p "$TEST_ROOT/download-return-path/logs"
+  mkdir -p "$server_dir"
 
-  cat >"$TEST_ROOT/download-return-path/server.py" <<'EOF'
+  cat >"$server_dir/server.py" <<'EOF'
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import sys
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -53,27 +45,153 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-HTTPServer(("127.0.0.1", 8000), Handler).serve_forever()
+HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
 EOF
 
-  python3 "$TEST_ROOT/download-return-path/server.py" \
-    >"$TEST_ROOT/download-return-path/http.log" 2>&1 &
+  python3 "$server_dir/server.py" "$port" \
+    >"$server_dir/http.log" 2>&1 &
   HTTP_PID=$!
+}
+
+wait_for_http_server() {
+  local port=$1
+  local server_dir=$2
 
   for _ in $(seq 1 30); do
-    if python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/", timeout=1).read(1)' >/dev/null 2>&1; then
-      break
+    if python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$port/', timeout=1).read(1)" >/dev/null 2>&1; then
+      return 0
     fi
     sleep 0.2
   done
 
-  if ! python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/", timeout=1).read(1)' >/dev/null 2>&1; then
-    echo "Error: download return-path test HTTP server did not become ready."
-    cat "$TEST_ROOT/download-return-path/http.log"
-    return 1
+  echo "Error: HTTP server on port $port did not become ready."
+  cat "$server_dir/http.log"
+  return 1
+}
+
+stop_http_server() {
+  if [ -n "$HTTP_PID" ]; then
+    kill "$HTTP_PID" 2>/dev/null || true
+    HTTP_PID=""
+  fi
+}
+
+cleanup() {
+  stop_http_server
+  rm -rf "$TEST_ROOT"
+}
+trap cleanup EXIT
+
+run_download_allocation_ownership_test() {
+  # This test calls download() directly so it checks the ownership of
+  # download_base and local_filename without unrelated logging allocations.
+  local test_dir="$TEST_ROOT/download-allocation-ownership"
+  local downloads_dir="$test_dir/downloads"
+  local port=8001
+
+  mkdir -p "$test_dir"
+  start_http_server "$test_dir/http" "$port"
+  wait_for_http_server "$port" "$test_dir/http"
+
+  cat >"$test_dir/test.c" <<'EOF'
+#include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        return 2;
+    }
+
+    int (*download)(const char *, char **) = dlsym(RTLD_DEFAULT, "download");
+    if (download == NULL) {
+        fprintf(stderr, "Error: download() is unavailable.\n");
+        return 2;
+    }
+
+    char *local_path = NULL;
+    if (download(argv[1], &local_path) != 0) {
+        return 1;
+    }
+    if (local_path == NULL || access(local_path, R_OK) != 0) {
+        free(local_path);
+        return 1;
+    }
+
+    free(local_path);
+    return 0;
+}
+EOF
+
+  gcc -fsanitize=address -g -O0 \
+    -o "$test_dir/test" \
+    "$test_dir/test.c" \
+    -ldl
+
+  ASAN_RUNTIME=$(gcc -print-file-name=libasan.so)
+  if [ ! -f "$ASAN_RUNTIME" ]; then
+    ASAN_RUNTIME=$(ldconfig -p | awk '/libasan\.so/ {print $NF; exit}')
   fi
 
-  cat >"$TEST_ROOT/download-return-path/test.c" <<'EOF'
+  run_download_allocation_ownership_case() {
+    local label=$1
+    local download_base=$2
+    local url=$3
+
+    echo "=== Run download allocation ownership test: $label ==="
+    if [ -n "$download_base" ]; then
+      export VDI_DOWNLOAD_BASE="$download_base"
+    else
+      unset VDI_DOWNLOAD_BASE
+    fi
+
+    if ! LD_PRELOAD="$ASAN_RUNTIME:$PWD/src/vdi_wrapper/build/libvdi-asan.so" \
+      ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=1 \
+      "$test_dir/test" "$url"; then
+      echo "Error: download allocation ownership test failed: $label."
+      return 1
+    fi
+  }
+
+  run_download_allocation_ownership_case \
+    "environment download base and URL filename" \
+    "$downloads_dir" \
+    "http://127.0.0.1:$port/from-url.txt"
+
+  run_download_allocation_ownership_case \
+    "environment download base and generated filename" \
+    "$downloads_dir" \
+    "http://127.0.0.1:$port/"
+
+  run_download_allocation_ownership_case \
+    "default download base and URL filename" \
+    "" \
+    "http://127.0.0.1:$port/from-url.txt"
+
+  run_download_allocation_ownership_case \
+    "default download base and generated filename" \
+    "" \
+    "http://127.0.0.1:$port/"
+
+  unset VDI_DOWNLOAD_BASE
+  stop_http_server
+}
+
+run_download_return_path_test() {
+  # This test focuses on the returned download path by:
+  # - VDI_DOWNLOAD_BASE is unset, so download_base is heap-allocated.
+  # - The URL has no filename, so local_filename is heap-allocated.
+  # - LeakSanitizer is disabled, while ASan memory-error checks remain enabled.
+  local test_dir="$TEST_ROOT/download-return-path"
+  local port=8000
+
+  mkdir -p "$test_dir/logs"
+  start_http_server "$test_dir/http" "$port"
+  wait_for_http_server "$port" "$test_dir/http"
+
+  cat >"$test_dir/test.c" <<'EOF'
 #include <stdio.h>
 
 
@@ -93,8 +211,8 @@ int main(void) {
 EOF
 
   gcc -fsanitize=address -g -O0 \
-    -o "$TEST_ROOT/download-return-path/test" \
-    "$TEST_ROOT/download-return-path/test.c"
+    -o "$test_dir/test" \
+    "$test_dir/test.c"
 
   ASAN_RUNTIME=$(gcc -print-file-name=libasan.so)
   if [ ! -f "$ASAN_RUNTIME" ]; then
@@ -107,24 +225,24 @@ EOF
   LD_PRELOAD="$ASAN_RUNTIME:$PWD/src/vdi_wrapper/build/libvdi-asan.so" \
   ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=0 \
   VDI_LOG_DIR="$TEST_ROOT/download-return-path/logs" \
-  "$TEST_ROOT/download-return-path/test" >"$TEST_ROOT/download-return-path/test-output.txt"
+  "$test_dir/test" >"$test_dir/test-output.txt"
 
-  cat "$TEST_ROOT/download-return-path/test-output.txt"
+  cat "$test_dir/test-output.txt"
 
-  if [ "$(cat "$TEST_ROOT/download-return-path/test-output.txt")" != "hello from vdi" ]; then
+  if [ "$(cat "$test_dir/test-output.txt")" != "hello from vdi" ]; then
     echo "Error: unexpected download return-path test output."
     return 1
   fi
 
-  if [ "$(find "$TEST_ROOT/download-return-path/logs" -type f -name '*.log' | wc -l)" -eq 0 ]; then
+  if [ "$(find "$test_dir/logs" -type f -name '*.log' | wc -l)" -eq 0 ]; then
     echo "Error: no download return-path log file was created."
     return 1
   fi
 
-  kill "$HTTP_PID" 2>/dev/null || true
-  HTTP_PID=""
+  stop_http_server
 }
 
+run_download_allocation_ownership_test
 run_download_return_path_test
 
 echo "libvdi wrapper ASan tests passed."
