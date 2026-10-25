@@ -51,8 +51,9 @@ Run `vdi -h` for the full usage overview.
 
 ## Supported platforms
 
-- Linux `x86_64` and `aarch64`
-- EESSI stack versions 2023.06, 2025.06, and 2026.06
+- Linux `x86_64`, `aarch64`, and `riscv64`
+- EESSI stack versions 2023.06, 2025.06, and 2026.06 (`riscv64`: 2026.06
+  only)
 
 ## License
 
