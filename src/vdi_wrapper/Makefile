@@ -23,12 +23,22 @@ INSTALL_DIR = ../../lib64
 
 # target shared library
 TARGET = libvdi.so
+ASAN_TARGET = libvdi-asan.so
+TSAN_TARGET = libvdi-tsan.so
 
 # source files
 SRCS = vdi.c
 
 # object file (in the build directory)
 OBJ = $(BUILD_DIR)/$(TARGET)
+ASAN_OBJ = $(BUILD_DIR)/$(ASAN_TARGET)
+TSAN_OBJ = $(BUILD_DIR)/$(TSAN_TARGET)
+
+# sanitizer-specific compiler and linker flags
+ASAN_CFLAGS = $(CFLAGS) -fsanitize=address -fno-omit-frame-pointer
+ASAN_LDFLAGS = $(LDFLAGS) -fsanitize=address
+TSAN_CFLAGS = $(CFLAGS) -fsanitize=thread -fno-omit-frame-pointer
+TSAN_LDFLAGS = $(LDFLAGS) -fsanitize=thread
 
 # compile target
 compile: is_eessi_initialized compiler_from_compat_layer clean_environment $(BUILD_DIR) $(OBJ)
@@ -84,6 +94,18 @@ $(BUILD_DIR):
 $(OBJ): $(SRCS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
+# build an AddressSanitizer-instrumented shared library
+compile-asan: is_eessi_initialized compiler_from_compat_layer clean_environment $(BUILD_DIR) $(ASAN_OBJ)
+
+$(ASAN_OBJ): $(SRCS)
+	$(CC) $(ASAN_CFLAGS) -o $@ $^ $(ASAN_LDFLAGS)
+
+# build a ThreadSanitizer-instrumented shared library
+compile-tsan: is_eessi_initialized compiler_from_compat_layer clean_environment $(BUILD_DIR) $(TSAN_OBJ)
+
+$(TSAN_OBJ): $(SRCS)
+	$(CC) $(TSAN_CFLAGS) -o $@ $^ $(TSAN_LDFLAGS)
+
 # verify that the built shared library has the expected RUNPATH entry
 # uses readelf -d to inspect the ELF dynamic section and checks for a
 # RUNPATH (DT_RUNPATH) entry matching $(EXPECTED_RUNPATH)
@@ -116,5 +138,6 @@ clean-all: clean clean-install
 
 # phony targets
 .PHONY: all build clean install $(BUILD_DIR) clean-install clean-all \
+        compile-asan compile-tsan \
         is_eessi_initialized compiler_from_compat_layer clean_environment \
         verify_rpath

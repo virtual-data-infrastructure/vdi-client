@@ -199,6 +199,20 @@ vdi view --base-url http://localhost create myview  # create a new view
 pytest
 ```
 
+### Building sanitizer-instrumented wrapper libraries
+
+The wrapper can be built with AddressSanitizer or ThreadSanitizer for
+memory-safety and concurrency verification:
+
+```bash
+make asan   # builds src/vdi_wrapper/build/libvdi-asan.so
+make tsan   # builds src/vdi_wrapper/build/libvdi-tsan.so
+```
+
+Use the resulting library with a test program compiled using the matching
+sanitizer flags. See the
+[wrapper README](src/vdi_wrapper/README.md#sanitizer-builds) for details.
+
 ### Linting and type checking
 
 ```bash
