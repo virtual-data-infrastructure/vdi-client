@@ -108,7 +108,24 @@ EOF
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#if defined(__riscv)
+#include <sanitizer/allocator_interface.h>
+#endif
 
+
+int run_download(int (*download)(const char *, char **), const char *url) {
+    char *local_path = NULL;
+    if (download(url, &local_path) != 0) {
+        return 1;
+    }
+    if (local_path == NULL || access(local_path, R_OK) != 0) {
+        free(local_path);
+        return 1;
+    }
+
+    free(local_path);
+    return 0;
+}
 
 int main(int argc, char **argv) {
     if (argc != 3) {
@@ -128,18 +145,35 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    char *local_path = NULL;
-    if (download(argv[2], &local_path) != 0) {
-        dlclose(wrapper);
-        return 1;
-    }
-    if (local_path == NULL || access(local_path, R_OK) != 0) {
-        free(local_path);
-        dlclose(wrapper);
-        return 1;
+#if defined(__riscv)
+    for (int iteration = 0; iteration < 2; iteration++) {
+        if (run_download(download, argv[2]) != 0) {
+            dlclose(wrapper);
+            return 1;
+        }
     }
 
-    free(local_path);
+    size_t allocated_before = __sanitizer_get_current_allocated_bytes();
+    for (int iteration = 0; iteration < 3; iteration++) {
+        if (run_download(download, argv[2]) != 0) {
+            dlclose(wrapper);
+            return 1;
+        }
+    }
+    size_t allocated_after = __sanitizer_get_current_allocated_bytes();
+
+    if (allocated_after > allocated_before) {
+        fprintf(stderr, "Error: download leaked %zu byte(s) across 3 calls.\n", allocated_after - allocated_before);
+        dlclose(wrapper);
+        return 1;
+    }
+#else
+    if (run_download(download, argv[2]) != 0) {
+        dlclose(wrapper);
+        return 1;
+    }
+#endif
+
     dlclose(wrapper);
     return 0;
 }
