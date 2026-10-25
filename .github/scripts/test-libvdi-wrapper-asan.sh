@@ -109,7 +109,7 @@ EOF
 #include <stdlib.h>
 #include <unistd.h>
 #if defined(__riscv)
-#include <sanitizer/allocator_interface.h>
+extern size_t __sanitizer_get_current_allocated_bytes(void);
 #endif
 
 
