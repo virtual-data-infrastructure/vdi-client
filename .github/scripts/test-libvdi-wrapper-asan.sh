@@ -101,26 +101,36 @@ run_download_allocation_ownership_test() {
 
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
+    if (argc != 3) {
         return 2;
     }
 
-    int (*download)(const char *, char **) = dlsym(RTLD_DEFAULT, "download");
+    void *wrapper = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+    if (wrapper == NULL) {
+        fprintf(stderr, "Error: dlopen() failed: %s\n", dlerror());
+        return 2;
+    }
+
+    int (*download)(const char *, char **) = dlsym(wrapper, "download");
     if (download == NULL) {
-        fprintf(stderr, "Error: download() is unavailable.\n");
+        fprintf(stderr, "Error: download() is unavailable: %s\n", dlerror());
+        dlclose(wrapper);
         return 2;
     }
 
     char *local_path = NULL;
-    if (download(argv[1], &local_path) != 0) {
+    if (download(argv[2], &local_path) != 0) {
+        dlclose(wrapper);
         return 1;
     }
     if (local_path == NULL || access(local_path, R_OK) != 0) {
         free(local_path);
+        dlclose(wrapper);
         return 1;
     }
 
     free(local_path);
+    dlclose(wrapper);
     return 0;
 }
 EOF
@@ -129,11 +139,6 @@ EOF
     -o "$test_dir/test" \
     "$test_dir/test.c" \
     -ldl
-
-  ASAN_RUNTIME=$(gcc -print-file-name=libasan.so)
-  if [ ! -f "$ASAN_RUNTIME" ]; then
-    ASAN_RUNTIME=$(ldconfig -p | awk '/libasan\.so/ {print $NF; exit}')
-  fi
 
   run_download_allocation_ownership_case() {
     local label=$1
@@ -147,9 +152,8 @@ EOF
       unset VDI_DOWNLOAD_BASE
     fi
 
-    if ! LD_PRELOAD="$ASAN_RUNTIME:$PWD/src/vdi_wrapper/build/libvdi-asan.so" \
-      ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=1 \
-      "$test_dir/test" "$url"; then
+    if ! ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=1 \
+      "$test_dir/test" "$PWD/src/vdi_wrapper/build/libvdi-asan.so" "$url"; then
       echo "Error: download allocation ownership test failed: $label."
       return 1
     fi
