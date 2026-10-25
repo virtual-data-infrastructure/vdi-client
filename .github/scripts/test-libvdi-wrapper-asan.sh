@@ -82,6 +82,107 @@ cleanup() {
 }
 trap cleanup EXIT
 
+run_log_path_allocation_test() {
+  # This test calls log_call() directly so it checks log-path allocations
+  # without invoking the wrapped file operations.
+  local test_dir="$TEST_ROOT/log-path-allocation"
+  local logs_dir="$test_dir/logs"
+  local detect_leaks=1
+
+  if [ "$(uname -m)" = "riscv64" ]; then
+    detect_leaks=0
+  fi
+
+  mkdir -p "$logs_dir"
+
+  cat >"$test_dir/test.c" <<'EOF'
+#include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#if defined(__riscv)
+extern size_t __sanitizer_get_current_allocated_bytes(void);
+#endif
+
+
+int run_log_call(int (*log_call)(const char *, int, char **)) {
+    return log_call("log-path-allocation-test", 0, NULL);
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        return 2;
+    }
+
+    void *wrapper = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+    if (wrapper == NULL) {
+        fprintf(stderr, "Error: dlopen() failed: %s\n", dlerror());
+        return 2;
+    }
+
+    int (*log_call)(const char *, int, char **) = dlsym(wrapper, "log_call");
+    if (log_call == NULL) {
+        fprintf(stderr, "Error: log_call() is unavailable: %s\n", dlerror());
+        dlclose(wrapper);
+        return 2;
+    }
+
+#if defined(__riscv)
+    for (int iteration = 0; iteration < 2; iteration++) {
+        if (run_log_call(log_call) != EXIT_SUCCESS) {
+            dlclose(wrapper);
+            return 1;
+        }
+    }
+
+    size_t allocated_before = __sanitizer_get_current_allocated_bytes();
+    for (int iteration = 0; iteration < 3; iteration++) {
+        if (run_log_call(log_call) != EXIT_SUCCESS) {
+            dlclose(wrapper);
+            return 1;
+        }
+    }
+    size_t allocated_after = __sanitizer_get_current_allocated_bytes();
+
+    if (allocated_after > allocated_before) {
+        fprintf(stderr, "Error: log_call leaked %zu byte(s) across 3 calls.\n", allocated_after - allocated_before);
+        dlclose(wrapper);
+        return 1;
+    }
+#else
+    if (run_log_call(log_call) != EXIT_SUCCESS) {
+        dlclose(wrapper);
+        return 1;
+    }
+#endif
+
+    dlclose(wrapper);
+    return 0;
+}
+EOF
+
+  gcc -fsanitize=address -g -O0 \
+    -o "$test_dir/test" \
+    "$test_dir/test.c" \
+    -ldl
+
+  echo "=== Run log-path allocation ASan test ==="
+  if ! ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=$detect_leaks \
+    VDI_LOG_DIR="$logs_dir" \
+    VDI_LOG_FILE_PREFIX="allocation-test." \
+    "$test_dir/test" "$PWD/src/vdi_wrapper/build/libvdi-asan.so"; then
+    echo "Error: log-path allocation test failed."
+    return 1
+  fi
+
+  if [ "$(find "$logs_dir" -type f -name '*.log' | wc -l)" -eq 0 ]; then
+    echo "Error: no log-path allocation test log file was created."
+    return 1
+  fi
+
+  unset VDI_LOG_DIR
+  unset VDI_LOG_FILE_PREFIX
+}
+
 run_download_allocation_ownership_test() {
   # This test calls download() directly so it checks the ownership of
   # download_base and local_filename without unrelated logging allocations.
@@ -291,6 +392,7 @@ EOF
   stop_http_server
 }
 
+run_log_path_allocation_test
 run_download_allocation_ownership_test
 run_download_return_path_test
 
