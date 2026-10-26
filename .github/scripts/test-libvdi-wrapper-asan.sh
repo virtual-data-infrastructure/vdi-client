@@ -82,6 +82,96 @@ cleanup() {
 }
 trap cleanup EXIT
 
+run_shell_variable_expansion_bounds_test() {
+  local test_dir="$TEST_ROOT/shell-variable-expansion-bounds"
+  local detect_leaks=1
+
+  if [ "$(uname -m)" = "riscv64" ]; then
+    detect_leaks=0
+  fi
+
+  mkdir -p "$test_dir"
+
+  cat >"$test_dir/test.c" <<'EOF'
+#include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define EXPANSION_BUFFER_SIZE 4096
+#define LONG_VALUE_SIZE (EXPANSION_BUFFER_SIZE * 2)
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        return 2;
+    }
+
+    void *wrapper = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+    if (wrapper == NULL) {
+        fprintf(stderr, "Error: dlopen() failed: %s\n", dlerror());
+        return 2;
+    }
+
+    char *(*expand_shell_vars)(const char *) = dlsym(wrapper, "expand_shell_vars");
+    if (expand_shell_vars == NULL) {
+        fprintf(stderr, "Error: expand_shell_vars() is unavailable: %s\n", dlerror());
+        dlclose(wrapper);
+        return 2;
+    }
+
+    char *long_value = calloc(LONG_VALUE_SIZE + 1, 1);
+    if (long_value == NULL) {
+        dlclose(wrapper);
+        return 2;
+    }
+    memset(long_value, 'x', LONG_VALUE_SIZE);
+
+    if (setenv("VDI_TEST_LONG_VALUE", long_value, 1) != 0) {
+        free(long_value);
+        dlclose(wrapper);
+        return 2;
+    }
+
+    char *expanded = expand_shell_vars("$VDI_TEST_LONG_VALUE");
+    free(long_value);
+
+    if (expanded == NULL) {
+        fprintf(stderr, "Error: expand_shell_vars() returned NULL.\n");
+        dlclose(wrapper);
+        return 1;
+    }
+
+    size_t expanded_length = strlen(expanded);
+    free(expanded);
+    dlclose(wrapper);
+
+    if (expanded_length != EXPANSION_BUFFER_SIZE - 1) {
+        fprintf(
+            stderr,
+            "Error: expanded value has length %zu; expected %zu.\n",
+            expanded_length,
+            (size_t)(EXPANSION_BUFFER_SIZE - 1)
+        );
+        return 1;
+    }
+
+    return 0;
+}
+EOF
+
+  gcc -fsanitize=address -g -O0 \
+    -o "$test_dir/test" \
+    "$test_dir/test.c" \
+    -ldl
+
+  echo "=== Run shell variable expansion bounds ASan test ==="
+  if ! ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=$detect_leaks \
+    "$test_dir/test" "$PWD/src/vdi_wrapper/build/libvdi-asan.so"; then
+    echo "Error: shell variable expansion bounds test failed."
+    return 1
+  fi
+}
+
 run_log_path_allocation_test() {
   # This test calls log_call() directly so it checks log-path allocations
   # without invoking the wrapped file operations.
@@ -392,6 +482,7 @@ EOF
   stop_http_server
 }
 
+run_shell_variable_expansion_bounds_test
 run_log_path_allocation_test
 run_download_allocation_ownership_test
 run_download_return_path_test
