@@ -213,6 +213,14 @@ Use the resulting library with a test program compiled using the matching
 sanitizer flags. See the
 [wrapper README](src/vdi_wrapper/README.md#sanitizer-builds) for details.
 
+The repository also contains sanitizer regression suites that build and run the
+instrumented wrapper. Initialize EESSI first, then run:
+
+```bash
+.github/scripts/test-libvdi-wrapper-asan.sh
+.github/scripts/test-libvdi-wrapper-tsan.sh
+```
+
 ### Linting and type checking
 
 ```bash
