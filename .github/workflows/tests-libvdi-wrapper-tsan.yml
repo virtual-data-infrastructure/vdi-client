@@ -68,7 +68,6 @@ jobs:
   wrapper-tsan-riscv64:
     name: TSan tests (riscv64, EESSI 2026.06)
     runs-on: ubuntu-24.04
-    continue-on-error: true
 
     steps:
       - name: Checkout code
