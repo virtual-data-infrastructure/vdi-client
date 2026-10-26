@@ -82,6 +82,97 @@ cleanup() {
 }
 trap cleanup EXIT
 
+run_open_access_flags_mapping_test() {
+  local test_dir="$TEST_ROOT/open-access-flags-mapping"
+  local detect_leaks=1
+
+  if [ "$(uname -m)" = "riscv64" ]; then
+    detect_leaks=0
+  fi
+
+  mkdir -p "$test_dir"
+
+  cat >"$test_dir/test.c" <<'EOF'
+#include <dlfcn.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+struct flags_case {
+    int flags;
+    const char *expected;
+};
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        return 2;
+    }
+
+    void *wrapper = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+    if (wrapper == NULL) {
+        fprintf(stderr, "Error: dlopen() failed: %s\n", dlerror());
+        return 2;
+    }
+
+    char *(*map_flags_to_strings)(int) = dlsym(wrapper, "map_flags_to_strings");
+    if (map_flags_to_strings == NULL) {
+        fprintf(stderr, "Error: map_flags_to_strings() is unavailable: %s\n", dlerror());
+        dlclose(wrapper);
+        return 2;
+    }
+
+    struct flags_case cases[] = {
+        {O_RDONLY, "O_RDONLY"},
+        {O_WRONLY, "O_WRONLY"},
+        {O_RDWR, "O_RDWR"},
+        {O_WRONLY | O_CREAT, "O_WRONLY+O_CREAT"},
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char *mapped = map_flags_to_strings(cases[i].flags);
+        if (mapped == NULL) {
+            fprintf(stderr, "Error: map_flags_to_strings() returned NULL.\n");
+            dlclose(wrapper);
+            return 1;
+        }
+
+        int matches = strcmp(mapped, cases[i].expected) == 0;
+        if (!matches) {
+            fprintf(
+                stderr,
+                "Error: flags %d mapped to '%s'; expected '%s'.\n",
+                cases[i].flags,
+                mapped,
+                cases[i].expected
+            );
+        }
+
+        free(mapped);
+        if (!matches) {
+            dlclose(wrapper);
+            return 1;
+        }
+    }
+
+    dlclose(wrapper);
+    return 0;
+}
+EOF
+
+  gcc -fsanitize=address -g -O0 \
+    -o "$test_dir/test" \
+    "$test_dir/test.c" \
+    -ldl
+
+  echo "=== Run open access flags mapping ASan test ==="
+  if ! ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=$detect_leaks \
+    "$test_dir/test" "$PWD/src/vdi_wrapper/build/libvdi-asan.so"; then
+    echo "Error: open access flags mapping test failed."
+    return 1
+  fi
+}
+
 run_shell_variable_expansion_bounds_test() {
   local test_dir="$TEST_ROOT/shell-variable-expansion-bounds"
   local detect_leaks=1
@@ -482,6 +573,7 @@ EOF
   stop_http_server
 }
 
+run_open_access_flags_mapping_test
 run_shell_variable_expansion_bounds_test
 run_log_path_allocation_test
 run_download_allocation_ownership_test
