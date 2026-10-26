@@ -64,3 +64,42 @@ jobs:
 
       - name: Run libvdi wrapper TSan tests
         run: .github/scripts/test-libvdi-wrapper-tsan.sh
+
+  wrapper-tsan-riscv64:
+    name: TSan tests (riscv64, EESSI 2026.06)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: riscv64
+
+      - name: Run libvdi wrapper TSan tests
+        run: |
+          docker run --rm \
+            --platform linux/riscv64 \
+            --privileged \
+            --device /dev/fuse \
+            --env QEMU_RESERVED_VA=0x4000000000 \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ghcr.io/eessi/build-node:debian13-riscv64 \
+            bash -c '
+              set -euo pipefail
+              export EESSI_INIT_RISCV_SUPPRESS_SUPPORT_WARNING=1
+
+              mkdir -p /var/run/cvmfs /var/lib/cvmfs
+              cvmfs_config setup
+              mount -t cvmfs software.eessi.io /cvmfs/software.eessi.io
+
+              set +u
+              source /cvmfs/software.eessi.io/versions/2026.06/init/lmod/bash
+              set -u
+
+              .github/scripts/test-libvdi-wrapper-tsan.sh
+            '
