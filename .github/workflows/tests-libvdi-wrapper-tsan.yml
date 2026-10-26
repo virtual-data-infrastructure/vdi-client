@@ -85,7 +85,7 @@ jobs:
             --platform linux/riscv64 \
             --privileged \
             --device /dev/fuse \
-            --env QEMU_RESERVED_VA=0x1000000000000 \
+            --env QEMU_RESERVED_VA=0x8000000000 \
             -v "$PWD:/workspace" \
             -w /workspace \
             ghcr.io/eessi/build-node:debian13-riscv64 \

@@ -29,8 +29,13 @@ run_log_call_thread_safety_test() {
   local test_dir="$TEST_ROOT/log-call-thread-safety"
   local logs_dir="$test_dir/logs"
   local expected_lines=80
+  local extra_compiler_flags=""
 
   mkdir -p "$logs_dir"
+
+  if [ "$(uname -m)" = "riscv64" ]; then
+    extra_compiler_flags="-no-pie"
+  fi
 
   cat >"$test_dir/test.c" <<'EOF'
 #include <dlfcn.h>
@@ -158,6 +163,7 @@ int main(int argc, char **argv) {
 EOF
 
   gcc -fsanitize=thread -g -O0 \
+    $extra_compiler_flags \
     -o "$test_dir/test" \
     "$test_dir/test.c" \
     -pthread \
