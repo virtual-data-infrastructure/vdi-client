@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2025-2026 VDI contributors
+#
+# VDI client - client tools for the virtual data infrastructure.
+
 # determine CPU family
 ARCH := $(shell uname -m)
 

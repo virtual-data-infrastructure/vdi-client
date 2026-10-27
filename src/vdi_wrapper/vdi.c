@@ -1,3 +1,14 @@
+/*
+ * SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (C) 2025-2026 VDI contributors
+ *
+ * VDI client - client tools for the virtual data infrastructure.
+ */
+
+#if !defined(__linux__)
+#error "libvdi currently requires Linux"
+#endif
+
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <curl/curl.h>
