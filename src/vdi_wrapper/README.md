@@ -1,3 +1,10 @@
+<!--
+SPDX-License-Identifier: GPL-2.0-only
+Copyright (C) 2025-2026 VDI contributors
+
+VDI client - client tools for the virtual data infrastructure.
+-->
+
 # Directory for the shared wrapper library `libvdi.so` that implements the VDI extensions to EESSI
 
 Technically, the library is loaded via `$LD_PRELOAD` to enable using the tools
@@ -19,6 +26,10 @@ Disadvantages:
   unresolved libraries/symbols, or conflicts.
 
 ## Building the wrapper library
+
+The wrapper library currently supports Linux only. Building it on another
+platform, such as macOS, fails with a clear compile-time error rather than
+producing a library that would fail at runtime.
 
 Simply run `make all` and/or `make install`. The `Makefile` checks whether EESSI
 is initialized and whether the compiler from the compatibility layer in EESSI
