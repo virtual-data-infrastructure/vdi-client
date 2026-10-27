@@ -19,6 +19,7 @@
 #include <limits.h>
 #include <netdb.h>
 #include <pwd.h>
+#include <stdint.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -34,12 +35,14 @@
 
 bool _global_show_log_path = true;
 int _global_debug_level = 0;
+size_t _global_min_write_bytes = 1;
 
 // mutex for thread-safe logging
 pthread_mutex_t _log_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // persistent log file descriptor (opened lazily on first log_call, closed in destructor)
 int _log_fd = -1;
+static __thread bool _in_wrapper_call = false;
 
 const int MAX_BUFFER_SIZE = 4096;
 const int MAX_PATH_LEN = PATH_MAX;
@@ -65,6 +68,7 @@ const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_DIR = "${HOME}/.vdi/logs";
 const char* STRING_CONST_ENVVAR_VDI_LOG_FILE_PREFIX = "VDI_LOG_FILE_PREFIX";
 const char* STRING_CONST_ENVVAR_DEFAULT_VDI_LOG_FILE_PREFIX = "vdi_log.";
 const char* STRING_CONST_ENVVAR_VDI_LOG_DEBUG_LEVEL = "VDI_LOG_DEBUG_LEVEL";
+const char* STRING_CONST_ENVVAR_VDI_LOG_MIN_WRITE_BYTES = "VDI_LOG_MIN_WRITE_BYTES";
 const char* STRING_CONST_UTC_ERROR = "UTC_ERROR";
 const char* STRING_CONST_READLINK_ERROR = "READLINK_ERROR";
 const char* STRING_CONST_PROGRAM_ARGS_ERROR = "PROGRAM_ARGS_ERROR";
@@ -97,16 +101,16 @@ const char *URL_PREFIXES[] = {
 size_t NUM_URL_PREFIXES = sizeof(URL_PREFIXES) / sizeof(URL_PREFIXES[0]);
 
 // functions we use in here but that are also wrapped
-int (*actual_fclose)() = NULL;
+int (*actual_fclose)(FILE *) = NULL;
 FILE* (*actual_fopen64)() = NULL;
 FILE* (*actual_fopenat)() = NULL;
 FILE* (*actual_fopen)() = NULL;
 FILE* (*actual_freopen)() = NULL;
-size_t (*actual_fwrite)() = NULL;
+size_t (*actual_fwrite)(const void *, size_t, size_t, FILE *) = NULL;
 int (*actual_open64)() = NULL;
 int (*actual_openat)() = NULL;
 int (*actual_open)() = NULL;
-int (*actual_write)() = NULL;
+ssize_t (*actual_write)(int, const void *, size_t) = NULL;
 
 // debug function
 void debug(int debug_level, const char* format, ...) {
@@ -125,7 +129,10 @@ void debug(int debug_level, const char* format, ...) {
         strcat(format_with_prefix, STRING_CONST_VDI_DEBUG_PREFIX);
         strcat(format_with_prefix, pid_string);
         strcat(format_with_prefix, format);
+        bool previous_in_wrapper_call = _in_wrapper_call;
+        _in_wrapper_call = true;
         vfprintf(stderr, format_with_prefix, args);
+        _in_wrapper_call = previous_in_wrapper_call;
         va_end(args);
         free(format_with_prefix);
     }
@@ -138,6 +145,29 @@ void library_load(void) {
     if (value) {
         _global_debug_level = atoi(value);
     }
+
+    char *min_write_bytes_value = getenv(STRING_CONST_ENVVAR_VDI_LOG_MIN_WRITE_BYTES);
+    if (min_write_bytes_value != NULL && min_write_bytes_value[0] != '\0') {
+        const char *digit = min_write_bytes_value;
+        while (isdigit((unsigned char)*digit)) {
+            digit++;
+        }
+
+        errno = 0;
+        char *end = NULL;
+        unsigned long long min_write_bytes = strtoull(min_write_bytes_value, &end, 10);
+        if (*min_write_bytes_value != '\0' && *digit == '\0' && errno == 0 &&
+            end != min_write_bytes_value && *end == '\0' &&
+            min_write_bytes > 0 && min_write_bytes <= SIZE_MAX) {
+            _global_min_write_bytes = (size_t)min_write_bytes;
+        } else {
+            debug(4, "invalid value '%s' for %s; using %zu bytes\n",
+                  min_write_bytes_value,
+                  STRING_CONST_ENVVAR_VDI_LOG_MIN_WRITE_BYTES,
+                  _global_min_write_bytes);
+        }
+    }
+
     debug(2, "Shared Library Loaded: library_load() called\n");
 
     // obtain pointers to actual functions
@@ -547,7 +577,7 @@ long long get_process_start_time(pid_t pid) {
     }
 
     size_t length = fread(buffer, 1, sizeof(buffer) - 1, file);
-    fclose(file);
+    actual_fclose(file);
     if (length == 0) {
         return -1;
     }
@@ -589,10 +619,12 @@ long long get_process_start_time(pid_t pid) {
 
 int log_call(const char *func_name, int func_num_args, char **func_args) {
     pthread_mutex_lock(&_log_mutex);
+    _in_wrapper_call = true;
 
     char *log_path = get_log_path();
     if (log_path == NULL) {
         perror("Failed to allocate log path");
+        _in_wrapper_call = false;
         pthread_mutex_unlock(&_log_mutex);
         return EXIT_FAILURE;
     }
@@ -612,6 +644,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
             perror(err_msg);
             free(log_dir);
             free(log_path);
+            _in_wrapper_call = false;
             pthread_mutex_unlock(&_log_mutex);
             return EXIT_FAILURE;
         }
@@ -622,6 +655,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
             // cannot open log_path -> just return for now
             perror("Failed to open file");
             free(log_path);
+            _in_wrapper_call = false;
             pthread_mutex_unlock(&_log_mutex);
             return EXIT_FAILURE;
         }
@@ -839,7 +873,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         // read file content
         char buffer[MAX_BUFFER_SIZE];
         size_t length = fread(buffer, 1, sizeof(buffer), file);
-        fclose(file);
+        actual_fclose(file);
         if (length == 0) {
             program_args_string = strdup(STRING_CONST_PROGRAM_ARGS_ERROR);
         } else {
@@ -1004,6 +1038,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     free(elapsed_time_string);
     free(cwd_string);
 
+    _in_wrapper_call = false;
     pthread_mutex_unlock(&_log_mutex);
     return EXIT_SUCCESS;
 }
@@ -1377,4 +1412,81 @@ int open(const char *pathname, int flags, ...) {
       free(local_path);
       return result;
     }
+}
+
+int fclose(FILE *stream) {
+    if (_in_wrapper_call) {
+        return actual_fclose(stream);
+    }
+
+    _in_wrapper_call = true;
+    int saved_errno = errno;
+    debug(3, "'%s' called\n", __func__);
+
+    char **func_args = create_array_of_strings(1, MAX_STRING_LEN);
+    snprintf(func_args[0], MAX_STRING_LEN - 1, "%p", (void *)stream);
+
+    log_call(__func__, 1, func_args);
+    free_array_of_strings(func_args, 1);
+    errno = saved_errno;
+
+    int result = actual_fclose(stream);
+    _in_wrapper_call = false;
+    return result;
+}
+
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) {
+    if (_in_wrapper_call) {
+        return actual_fwrite(ptr, size, nmemb, stream);
+    }
+
+    _in_wrapper_call = true;
+    int saved_errno = errno;
+    size_t total_bytes = 0;
+    if (size != 0 && nmemb > SIZE_MAX / size) {
+        total_bytes = SIZE_MAX;
+    } else {
+        total_bytes = size * nmemb;
+    }
+
+    debug(3, "'%s' called for %zu bytes\n", __func__, total_bytes);
+
+    if (total_bytes >= _global_min_write_bytes) {
+        char **func_args = create_array_of_strings(3, MAX_STRING_LEN);
+        snprintf(func_args[0], MAX_STRING_LEN - 1, "%zu", size);
+        snprintf(func_args[1], MAX_STRING_LEN - 1, "%zu", nmemb);
+        snprintf(func_args[2], MAX_STRING_LEN - 1, "%p", (void *)stream);
+
+        log_call(__func__, 3, func_args);
+        free_array_of_strings(func_args, 3);
+        errno = saved_errno;
+    }
+
+    size_t result = actual_fwrite(ptr, size, nmemb, stream);
+    _in_wrapper_call = false;
+    return result;
+}
+
+ssize_t write(int fd, const void *buf, size_t count) {
+    if (_in_wrapper_call) {
+        return actual_write(fd, buf, count);
+    }
+
+    _in_wrapper_call = true;
+    int saved_errno = errno;
+    debug(3, "'%s' called for %zu bytes\n", __func__, count);
+
+    if (count >= _global_min_write_bytes) {
+        char **func_args = create_array_of_strings(2, MAX_STRING_LEN);
+        snprintf(func_args[0], MAX_STRING_LEN - 1, "%d", fd);
+        snprintf(func_args[1], MAX_STRING_LEN - 1, "%zu", count);
+
+        log_call(__func__, 2, func_args);
+        free_array_of_strings(func_args, 2);
+        errno = saved_errno;
+    }
+
+    ssize_t result = actual_write(fd, buf, count);
+    _in_wrapper_call = false;
+    return result;
 }
