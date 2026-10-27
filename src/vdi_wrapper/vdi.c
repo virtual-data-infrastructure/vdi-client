@@ -413,10 +413,16 @@ int download(const char *url, char **local_path) {
 
       res = curl_easy_perform(curl);
       if (res != CURLE_OK) {
-          fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+          debug(
+              1,
+              "curl_easy_perform() failed with CURLcode %d: %s\n",
+              res,
+              curl_easy_strerror(res)
+          );
           free(fullpath_directory);
           free(fullpath_local_file);
-          return res; // rather use some error code
+          errno = EIO;
+          return EXIT_FAILURE;
       }
 
       actual_fclose(fp);

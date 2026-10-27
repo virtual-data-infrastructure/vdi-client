@@ -245,25 +245,94 @@ EOF
   local two_argument_field_count
   two_argument_field_count=$(awk \
     -v pathname="$existing_file" \
-    '$11 == "open64" && $12 == pathname { print NF; exit }' \
+    '$13 == "open64" && $14 == pathname { print NF; found = 1; exit }
+     END { if (!found) print 0 }' \
     "$log_file")
-  if [ "$two_argument_field_count" -ne 13 ]; then
-    echo "Error: two-argument open64() logged $two_argument_field_count fields; expected 13."
+  if [ "$two_argument_field_count" -ne 15 ]; then
+    echo "Error: two-argument open64() logged $two_argument_field_count fields; expected 15."
     return 1
   fi
 
   local three_argument_field_count
   three_argument_field_count=$(awk \
     -v pathname="$created_file" \
-    '$11 == "open64" && $12 == pathname { print NF; exit }' \
+    '$13 == "open64" && $14 == pathname { print NF; found = 1; exit }
+     END { if (!found) print 0 }' \
     "$log_file")
-  if [ "$three_argument_field_count" -ne 14 ]; then
-    echo "Error: three-argument open64() logged $three_argument_field_count fields; expected 14."
+  if [ "$three_argument_field_count" -ne 16 ]; then
+    echo "Error: three-argument open64() logged $three_argument_field_count fields; expected 16."
+    return 1
+  fi
+}
+
+run_download_error_reporting_test() {
+  local test_dir="$TEST_ROOT/download-error-reporting"
+  local downloads_dir="$test_dir/downloads"
+
+  mkdir -p "$downloads_dir"
+
+  cat >"$test_dir/test.c" <<'EOF'
+#include <dlfcn.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        return 2;
+    }
+
+    void *wrapper = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+    if (wrapper == NULL) {
+        fprintf(stderr, "Error: dlopen() failed: %s\n", dlerror());
+        return 2;
+    }
+
+    int (*download)(const char *, char **) = dlsym(wrapper, "download");
+    if (download == NULL) {
+        fprintf(stderr, "Error: download() is unavailable: %s\n", dlerror());
+        dlclose(wrapper);
+        return 2;
+    }
+
+    char *local_path = NULL;
+    errno = 0;
+    int result = download("http://127.0.0.1:1/", &local_path);
+
+    printf("download() returned %d; errno is %d.\n", result, errno);
+
+    if (result != EXIT_FAILURE) {
+        fprintf(stderr, "Error: download() returned %d; expected EXIT_FAILURE.\n", result);
+        dlclose(wrapper);
+        return 1;
+    }
+
+    if (errno != EIO) {
+        fprintf(stderr, "Error: download() set errno to %d; expected EIO (%d).\n", errno, EIO);
+        dlclose(wrapper);
+        return 1;
+    }
+
+    dlclose(wrapper);
+    return 0;
+}
+EOF
+
+  gcc -Wall -Wextra -Werror -g -O0 \
+    -o "$test_dir/test" \
+    "$test_dir/test.c" \
+    -ldl
+
+  echo "=== Run download error reporting test ==="
+  if ! VDI_DOWNLOAD_BASE="$downloads_dir" \
+    "$test_dir/test" "$PWD/src/vdi_wrapper/build/libvdi.so"; then
+    echo "Error: download error reporting test failed."
     return 1
   fi
 }
 
 run_process_start_time_parsing_test
 run_open64_variadic_signature_test
+run_download_error_reporting_test
 
 echo "libvdi wrapper functional tests passed."
