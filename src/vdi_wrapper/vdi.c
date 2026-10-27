@@ -527,60 +527,47 @@ long long get_process_start_time(pid_t pid) {
     FILE *file = actual_fopen(path, "r");
     if (file == NULL) {
         return -1;
-    } else {
-        // read file content
-        size_t length = fread(buffer, 1, sizeof(buffer), file);
-        fclose(file);
-        if (length == 0) {
+    }
+
+    size_t length = fread(buffer, 1, sizeof(buffer) - 1, file);
+    fclose(file);
+    if (length == 0) {
+        return -1;
+    }
+    buffer[length] = '\0';
+
+    char *closing_parenthesis = strrchr(buffer, ')');
+    if (closing_parenthesis == NULL) {
+        return -1;
+    }
+
+    char *field = closing_parenthesis + 1;
+    for (int field_number = 3; field_number <= 22; field_number++) {
+        while (*field == ' ') {
+            field++;
+        }
+        if (*field == '\0') {
             return -1;
-        } else {
-            // extract the 22nd field from the stat file which is the start time
-            // Note, the 2nd field begins with '(' and ends with ')'
-            buffer[length] = '\0';
-            char *ptr = buffer;
-            int num = 0;
+        }
 
-            while (*ptr != '\0') {
-                if (*ptr == '(') {
-                    // special field detected
-                    char *end = strchr(ptr, ')');
-                    if (end == NULL) {
-                        // missing ')'
-                        num = 0;
-                        break;
-                    }
-                    num++; // increase field counter by one
-                    ptr = end + 1; // move past the closing parenthesis
-                } else {
-                    // regular field
-                    num++;
-                    char *end = strchr(ptr, ' ');
-                    if (end == NULL) {
-                        end = ptr + strlen(ptr); // if no space is found, go to end of string
-                    } else {
-                        if (num == 22) {
-                            *end = '\0'; // end column 22 string at found ' '
-                            break;
-                        } else {
-                            ptr = end;
-                        }
-                    }
-                }
-
-                // skip any trailing spaces
-                while (*ptr == ' ') {
-                    ptr++;
-                }
-            }
-            if (num == 22) {
-                // found column 22
-                return atoll(ptr);
-            } else {
-                // something went wrong
+        if (field_number == 22) {
+            errno = 0;
+            char *end = NULL;
+            long long start_time = strtoll(field, &end, 10);
+            if (end == field || errno != 0) {
                 return -1;
             }
+            return start_time;
         }
+
+        char *end = strchr(field, ' ');
+        if (end == NULL) {
+            return -1;
+        }
+        field = end + 1;
     }
+
+    return -1;
 }
 
 int log_call(const char *func_name, int func_num_args, char **func_args) {
