@@ -125,3 +125,13 @@ see the table below. The default debug level is zero (0).
 | 2 | Information about the loading and unloading of the libvdi.so shared library and level 1 will be printed. |
 | 3 | Information about intercepted calls and levels 1-2 will be printed. |
 | 4 | Information about runtime errors and processing details of the logger and levels 1-3 will be printed. |
+
+### Configuring write logging
+
+The environment variable `VDI_LOG_MIN_WRITE_BYTES` controls the minimum number
+of bytes a `write()` or `fwrite()` call must write before it is logged. The
+default value is one byte, which means that all non-zero writes are logged.
+Calls below the configured threshold are still performed, but they are not
+written to the log file. Write metadata is logged; the data being written is
+not included. Invalid and non-positive values are ignored, and the current
+threshold is retained.

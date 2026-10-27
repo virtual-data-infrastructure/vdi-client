@@ -331,8 +331,202 @@ EOF
   fi
 }
 
+run_write_close_interception_test() {
+  local test_dir="$TEST_ROOT/write-close-interception"
+  local default_logs_dir="$test_dir/default-logs"
+  local threshold_logs_dir="$test_dir/threshold-logs"
+  local output_file="$test_dir/output.txt"
+
+  mkdir -p "$default_logs_dir" "$threshold_logs_dir"
+
+  cat >"$test_dir/test.c" <<'EOF'
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+int main(int argc, char **argv) {
+    if (argc != 4) {
+        return 2;
+    }
+
+    if (strcmp(argv[2], "default") != 0 && strcmp(argv[2], "threshold") != 0) {
+        return 2;
+    }
+
+    void *wrapper = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+    if (wrapper == NULL) {
+        fprintf(stderr, "Error: dlopen() failed: %s\n", dlerror());
+        return 2;
+    }
+
+    int (*fclose_wrapper)(FILE *) = dlsym(wrapper, "fclose");
+    size_t (*fwrite_wrapper)(const void *, size_t, size_t, FILE *) = dlsym(wrapper, "fwrite");
+    ssize_t (*write_wrapper)(int, const void *, size_t) = dlsym(wrapper, "write");
+
+    if (fclose_wrapper == NULL || fwrite_wrapper == NULL || write_wrapper == NULL) {
+        fprintf(stderr, "Error: fclose, fwrite, or write is unavailable: %s\n", dlerror());
+        dlclose(wrapper);
+        return 2;
+    }
+
+    if (strcmp(argv[2], "default") == 0) {
+        FILE *stream = fopen(argv[3], "w");
+        if (stream == NULL) {
+            fprintf(stderr, "Error: fopen() failed: %s\n", strerror(errno));
+            dlclose(wrapper);
+            return 1;
+        }
+
+        if (fwrite_wrapper("x", 1, 1, stream) != 1) {
+            fprintf(stderr, "Error: fwrite() did not write the expected item count.\n");
+            dlclose(wrapper);
+            return 1;
+        }
+
+        if (fclose_wrapper(stream) != 0) {
+            fprintf(stderr, "Error: fclose() failed: %s\n", strerror(errno));
+            dlclose(wrapper);
+            return 1;
+        }
+
+        int fd = open(argv[3], O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (fd < 0) {
+            fprintf(stderr, "Error: open() failed: %s\n", strerror(errno));
+            dlclose(wrapper);
+            return 1;
+        }
+
+        if (write_wrapper(fd, "y", 1) != 1) {
+            fprintf(stderr, "Error: write() did not write the expected byte count.\n");
+            close(fd);
+            dlclose(wrapper);
+            return 1;
+        }
+
+        if (close(fd) != 0) {
+            fprintf(stderr, "Error: close() failed: %s\n", strerror(errno));
+            dlclose(wrapper);
+            return 1;
+        }
+    } else {
+        int fd = open(argv[3], O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (fd < 0) {
+            fprintf(stderr, "Error: open() failed: %s\n", strerror(errno));
+            dlclose(wrapper);
+            return 1;
+        }
+
+        if (write_wrapper(fd, "x", 1) != 1) {
+            fprintf(stderr, "Error: one-byte write() did not write the expected byte count.\n");
+            close(fd);
+            dlclose(wrapper);
+            return 1;
+        }
+
+        if (write_wrapper(fd, "yy", 2) != 2) {
+            fprintf(stderr, "Error: two-byte write() did not write the expected byte count.\n");
+            close(fd);
+            dlclose(wrapper);
+            return 1;
+        }
+
+        if (close(fd) != 0) {
+            fprintf(stderr, "Error: close() failed: %s\n", strerror(errno));
+            dlclose(wrapper);
+            return 1;
+        }
+    }
+
+    dlclose(wrapper);
+    return 0;
+}
+EOF
+
+  gcc -Wall -Wextra -Werror -g -O0 \
+    -o "$test_dir/test" \
+    "$test_dir/test.c" \
+    -ldl
+
+  echo "=== Run write and close interception test ==="
+  if ! VDI_LOG_DIR="$default_logs_dir" \
+    VDI_LOG_FILE_PREFIX="write-close-default." \
+    "$test_dir/test" \
+    "$PWD/src/vdi_wrapper/build/libvdi.so" \
+    default \
+    "$output_file"; then
+    echo "Error: write and close interception test failed."
+    return 1
+  fi
+
+  if ! VDI_LOG_DIR="$threshold_logs_dir" \
+    VDI_LOG_FILE_PREFIX="write-close-threshold." \
+    VDI_LOG_MIN_WRITE_BYTES=2 \
+    "$test_dir/test" \
+    "$PWD/src/vdi_wrapper/build/libvdi.so" \
+    threshold \
+    "$output_file"; then
+    echo "Error: write threshold test failed."
+    return 1
+  fi
+
+  local default_log_file
+  default_log_file=$(find "$default_logs_dir" -type f -name '*.log' -print -quit)
+  if [ -z "$default_log_file" ]; then
+    echo "Error: no write and close interception test log file was created."
+    return 1
+  fi
+
+  local fwrite_count
+  fwrite_count=$(awk '$13 == "fwrite" && $14 == 1 && $15 == 1 && NF == 16 { count++ } END { print count + 0 }' "$default_log_file")
+  if [ "$fwrite_count" -ne 1 ]; then
+    echo "Error: found $fwrite_count matching fwrite log entries; expected 1."
+    return 1
+  fi
+
+  local fclose_count
+  fclose_count=$(awk '$13 == "fclose" && NF == 14 { count++ } END { print count + 0 }' "$default_log_file")
+  if [ "$fclose_count" -ne 1 ]; then
+    echo "Error: found $fclose_count matching fclose log entries; expected 1."
+    return 1
+  fi
+
+  local write_count
+  write_count=$(awk '$13 == "write" && $15 == 1 && NF == 15 { count++ } END { print count + 0 }' "$default_log_file")
+  if [ "$write_count" -ne 1 ]; then
+    echo "Error: found $write_count matching one-byte write log entries; expected 1."
+    return 1
+  fi
+
+  local threshold_log_file
+  threshold_log_file=$(find "$threshold_logs_dir" -type f -name '*.log' -print -quit)
+  if [ -z "$threshold_log_file" ]; then
+    echo "Error: no write threshold test log file was created."
+    return 1
+  fi
+
+  local suppressed_write_count
+  suppressed_write_count=$(awk '$13 == "write" && $15 == 1 { count++ } END { print count + 0 }' "$threshold_log_file")
+  if [ "$suppressed_write_count" -ne 0 ]; then
+    echo "Error: found $suppressed_write_count one-byte write log entries; expected 0."
+    return 1
+  fi
+
+  local logged_write_count
+  logged_write_count=$(awk '$13 == "write" && $15 == 2 && NF == 15 { count++ } END { print count + 0 }' "$threshold_log_file")
+  if [ "$logged_write_count" -ne 1 ]; then
+    echo "Error: found $logged_write_count two-byte write log entries; expected 1."
+    return 1
+  fi
+}
+
 run_process_start_time_parsing_test
 run_open64_variadic_signature_test
 run_download_error_reporting_test
+run_write_close_interception_test
 
 echo "libvdi wrapper functional tests passed."
