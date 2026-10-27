@@ -38,19 +38,7 @@ run_process_start_time_parsing_test() {
 #include <sys/prctl.h>
 #include <unistd.h>
 
-long long get_expected_start_time(void) {
-    FILE *file = fopen("/proc/self/stat", "r");
-    if (file == NULL) {
-        return -1;
-    }
-
-    char stat_line[4096];
-    if (fgets(stat_line, sizeof(stat_line), file) == NULL) {
-        fclose(file);
-        return -1;
-    }
-    fclose(file);
-
+long long get_expected_start_time(const char *stat_line) {
     char *closing_parenthesis = strrchr(stat_line, ')');
     if (closing_parenthesis == NULL) {
         return -1;
@@ -69,6 +57,22 @@ long long get_expected_start_time(void) {
     }
 
     return -1;
+}
+
+int read_process_name(char *process_name, size_t process_name_size) {
+    FILE *file = fopen("/proc/self/comm", "r");
+    if (file == NULL) {
+        return -1;
+    }
+
+    if (fgets(process_name, process_name_size, file) == NULL) {
+        fclose(file);
+        return -1;
+    }
+    fclose(file);
+
+    process_name[strcspn(process_name, "\n")] = '\0';
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -95,11 +99,50 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    long long expected = get_expected_start_time();
+    char process_name[64];
+    if (read_process_name(process_name, sizeof(process_name)) != 0) {
+        fprintf(stderr, "Error: failed to read /proc/self/comm.\n");
+        dlclose(wrapper);
+        return 1;
+    }
+
+    char stat_line[4096];
+    FILE *stat_file = fopen("/proc/self/stat", "r");
+    if (stat_file == NULL || fgets(stat_line, sizeof(stat_line), stat_file) == NULL) {
+        if (stat_file != NULL) {
+            fclose(stat_file);
+        }
+        fprintf(stderr, "Error: failed to read /proc/self/stat.\n");
+        dlclose(wrapper);
+        return 1;
+    }
+    fclose(stat_file);
+
+    printf("Process name: %s\n", process_name);
+    printf("/proc/self/stat: %s\n", stat_line);
+
+    long long expected = get_expected_start_time(stat_line);
     long long actual = get_process_start_time(getpid());
 
+    printf("Expected process start time: %lld\n", expected);
+    printf("Received process start time: %lld\n", actual);
+
+    if (strcmp(process_name, "vdi)test") != 0) {
+        fprintf(
+            stderr,
+            "Error: process name is '%s'; expected 'vdi)test'.\n",
+            process_name
+        );
+        dlclose(wrapper);
+        return 1;
+    }
+
     if (expected < 0) {
-        fprintf(stderr, "Error: failed to determine expected process start time.\n");
+        fprintf(
+            stderr,
+            "Error: failed to determine expected process start time.\n"
+            "The complete diagnostics were printed above.\n"
+        );
         dlclose(wrapper);
         return 1;
     }
@@ -107,7 +150,8 @@ int main(int argc, char **argv) {
     if (actual != expected) {
         fprintf(
             stderr,
-            "Error: process start time is %lld; expected %lld.\n",
+            "Error: process start time is %lld; expected %lld.\n"
+            "The complete diagnostics were printed above.\n",
             actual,
             expected
         );
