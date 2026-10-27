@@ -245,20 +245,22 @@ EOF
   local two_argument_field_count
   two_argument_field_count=$(awk \
     -v pathname="$existing_file" \
-    '$11 == "open64" && $12 == pathname { print NF; exit }' \
+    '$13 == "open64" && $14 == pathname { print NF; found = 1; exit }
+     END { if (!found) print 0 }' \
     "$log_file")
-  if [ "$two_argument_field_count" -ne 13 ]; then
-    echo "Error: two-argument open64() logged $two_argument_field_count fields; expected 13."
+  if [ "$two_argument_field_count" -ne 15 ]; then
+    echo "Error: two-argument open64() logged $two_argument_field_count fields; expected 15."
     return 1
   fi
 
   local three_argument_field_count
   three_argument_field_count=$(awk \
     -v pathname="$created_file" \
-    '$11 == "open64" && $12 == pathname { print NF; exit }' \
+    '$13 == "open64" && $14 == pathname { print NF; found = 1; exit }
+     END { if (!found) print 0 }' \
     "$log_file")
-  if [ "$three_argument_field_count" -ne 14 ]; then
-    echo "Error: three-argument open64() logged $three_argument_field_count fields; expected 14."
+  if [ "$three_argument_field_count" -ne 16 ]; then
+    echo "Error: three-argument open64() logged $three_argument_field_count fields; expected 16."
     return 1
   fi
 }
