@@ -144,6 +144,126 @@ EOF
   fi
 }
 
+run_open64_variadic_signature_test() {
+  local test_dir="$TEST_ROOT/open64-variadic-signature"
+  local logs_dir="$test_dir/logs"
+  local existing_file="$test_dir/existing.txt"
+  local created_file="$test_dir/created.txt"
+
+  mkdir -p "$logs_dir"
+  printf 'hello from vdi\n' >"$existing_file"
+
+  cat >"$test_dir/test.c" <<'EOF'
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+int main(int argc, char **argv) {
+    if (argc != 4) {
+        return 2;
+    }
+
+    void *wrapper = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+    if (wrapper == NULL) {
+        fprintf(stderr, "Error: dlopen() failed: %s\n", dlerror());
+        return 2;
+    }
+
+    int (*open64_wrapper)(const char *, int, ...) = dlsym(wrapper, "open64");
+    if (open64_wrapper == NULL) {
+        fprintf(stderr, "Error: open64() is unavailable: %s\n", dlerror());
+        dlclose(wrapper);
+        return 2;
+    }
+
+    int existing_fd = open64_wrapper(argv[2], O_RDONLY);
+    if (existing_fd < 0) {
+        fprintf(stderr, "Error: two-argument open64() failed: %s\n", strerror(errno));
+        dlclose(wrapper);
+        return 1;
+    }
+    close(existing_fd);
+
+    umask(0);
+    int created_fd = open64_wrapper(argv[3], O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (created_fd < 0) {
+        fprintf(stderr, "Error: three-argument open64() failed: %s\n", strerror(errno));
+        dlclose(wrapper);
+        return 1;
+    }
+    close(created_fd);
+
+    struct stat file_status;
+    if (stat(argv[3], &file_status) != 0) {
+        fprintf(stderr, "Error: created file is unavailable: %s\n", strerror(errno));
+        dlclose(wrapper);
+        return 1;
+    }
+    if ((file_status.st_mode & 0777) != 0600) {
+        fprintf(
+            stderr,
+            "Error: created file mode is %04o; expected 0600.\n",
+            file_status.st_mode & 0777
+        );
+        dlclose(wrapper);
+        return 1;
+    }
+
+    dlclose(wrapper);
+    return 0;
+}
+EOF
+
+  gcc -Wall -Wextra -Werror -g -O0 \
+    -o "$test_dir/test" \
+    "$test_dir/test.c" \
+    -ldl
+
+  echo "=== Run open64 variadic signature test ==="
+  if ! VDI_LOG_DIR="$logs_dir" \
+    VDI_LOG_FILE_PREFIX="open64-variadic-test." \
+    "$test_dir/test" \
+    "$PWD/src/vdi_wrapper/build/libvdi.so" \
+    "$existing_file" \
+    "$created_file"; then
+    echo "Error: open64 variadic signature test failed."
+    return 1
+  fi
+
+  if [ "$(find "$logs_dir" -type f -name '*.log' | wc -l)" -eq 0 ]; then
+    echo "Error: no open64 variadic signature test log file was created."
+    return 1
+  fi
+
+  local log_file
+  log_file=$(find "$logs_dir" -type f -name '*.log' -print -quit)
+
+  local two_argument_field_count
+  two_argument_field_count=$(awk \
+    -v pathname="$existing_file" \
+    '$11 == "open64" && $12 == pathname { print NF; exit }' \
+    "$log_file")
+  if [ "$two_argument_field_count" -ne 13 ]; then
+    echo "Error: two-argument open64() logged $two_argument_field_count fields; expected 13."
+    return 1
+  fi
+
+  local three_argument_field_count
+  three_argument_field_count=$(awk \
+    -v pathname="$created_file" \
+    '$11 == "open64" && $12 == pathname { print NF; exit }' \
+    "$log_file")
+  if [ "$three_argument_field_count" -ne 14 ]; then
+    echo "Error: three-argument open64() logged $three_argument_field_count fields; expected 14."
+    return 1
+  fi
+}
+
 run_process_start_time_parsing_test
+run_open64_variadic_signature_test
 
 echo "libvdi wrapper functional tests passed."
