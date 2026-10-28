@@ -85,11 +85,15 @@ directory. For more information on using the script see
 | 7 | Process group ID |
 | 8 | Current working directory |
 | 9 | Full path to the program being run |
-| 10 | Command line arguments (incl. program name). Separated by `%%`; spaces replaced by `##`. |
+| 10 | Command line arguments (incl. program name). Separated by `%%`; values are percent-encoded. |
 | 11 | Start time of the program given as epoch and UTC time with the format `EPOCH_TIME%%UTC_TIME`. |
 | 12 | Elapsed time (microseconds) since the start time of the program. |
 | 13 | Name of the intercepted function |
 | 14+ | Arguments of the intercepted function (path, flags, mode, etc) |
+
+Dynamic values in columns 3, 4, 8, 9, 10, and 14+ are percent-encoded.
+Whitespace, control characters, and literal `%` characters use `%XX` encoding,
+for example `file with spaces.txt` is logged as `file%20with%20spaces.txt`.
 
 ### Configuring log file path and name
 

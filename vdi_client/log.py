@@ -19,10 +19,25 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote
 
 from vdi_client.config import resolve_log_dir, resolve_log_prefix
 
 _LOG_NAME_RE_TEMPLATE = r"^{prefix}(\d+)\.log$"
+
+
+def _decode_log_value(value: str) -> str:
+    """Decode a percent-encoded VDI log value.
+
+    Malformed sequences are left unchanged.
+
+    Args:
+        value: Encoded value read from a VDI log file.
+
+    Returns:
+        The decoded value.
+    """
+    return unquote(value)
 
 
 @dataclass
@@ -65,8 +80,8 @@ def _parse_program_from_log(path: Path) -> str | None:
     """Extract the program name from the first line of a log file.
 
     The log file format stores the command line (including the program name)
-    in column 10, with arguments separated by ``%%``.  The program name is
-    the first element of that column.
+    in column 10, with arguments separated by ``%%``. Values are
+    percent-encoded and the program name is the first decoded argument.
 
     Args:
         path: Path to the log file.
@@ -84,9 +99,8 @@ def _parse_program_from_log(path: Path) -> str | None:
         return None
 
     # Columns are separated by spaces; column 10 (0-indexed: 9) is the
-    # command line. We split on whitespace but need to be careful because
-    # the command-line column itself uses %% as separator (no spaces).
-    # The log format uses space-delimited columns.
+    # command line. Whitespace and percent signs in values are percent-encoded,
+    # while %% separates command-line arguments.
     parts = first_line.split()
     if len(parts) < 10:
         return None
@@ -97,8 +111,7 @@ def _parse_program_from_log(path: Path) -> str | None:
     if not cmd_parts:
         return None
 
-    # The program name is the first element; strip any ## that replace spaces.
-    program = cmd_parts[0].replace("##", " ")
+    program = _decode_log_value(cmd_parts[0])
     return program if program else None
 
 

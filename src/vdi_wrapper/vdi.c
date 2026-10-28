@@ -82,7 +82,6 @@ const char* STRING_CONST_IP_ADDRESS_ERROR = "IP_ADDRESS_ERROR";
 const char* STRING_CONST_PROGRAM_START_TIME_ERROR = "PROGRAM_START_TIME_ERROR";
 const char* STRING_CONST_PROGRAM_ELAPSED_TIME_ERROR = "PROGRAM_ELAPSED_TIME_ERROR";
 const char* STRING_CONST_PROGRAM_ARG_SEPARATOR = "%%";
-const char* STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE = "##";
 const char* STRING_CONST_FQHN_AND_IP_SEPARATOR = "//";
 const char* STRING_CONST_IPVER_SEPARATOR = "%%";
 const char* STRING_CONST_PROGRAM_STARTTIME_SEPARATOR = "%%";
@@ -250,6 +249,40 @@ char** create_array_of_strings(int num_strings, int string_len) {
         array[i][0] = '\0';
     }
     return array;
+}
+
+static void append_escaped_byte(char **destination, unsigned char value) {
+    if (value <= 0x1f || value == 0x7f || value == '%') {
+        snprintf(*destination, 4, "%%%02X", value);
+        *destination += 3;
+    } else {
+        *(*destination)++ = (char)value;
+    }
+}
+
+static char *allocate_escaped_log_value(const char *value) {
+    size_t length = strlen(value);
+    char *escaped_value = malloc(length * 3 + 1);
+    if (escaped_value == NULL) {
+        return NULL;
+    }
+
+    char *cursor = escaped_value;
+    for (size_t index = 0; index < length; ++index) {
+        append_escaped_byte(&cursor, (unsigned char)value[index]);
+    }
+    *cursor = '\0';
+    return escaped_value;
+}
+
+static char *escape_and_free_log_value(char *value) {
+    char *escaped_value = allocate_escaped_log_value(value);
+    if (escaped_value == NULL) {
+        return value;
+    }
+
+    free(value);
+    return escaped_value;
 }
 
 int create_dir(const char *pathname) {
@@ -838,6 +871,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         username = strdup(pw->pw_name);
         userhome = strdup(pw->pw_dir);
     }
+    username = escape_and_free_log_value(username);
+    userhome = escape_and_free_log_value(userhome);
 
     // obtain pid, ppid and pgid (process ID, parent process ID and process group ID)
     pid_t pid = getpid();
@@ -861,6 +896,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         readlink_exe_path[len] = '\0';
         program_name = strdup(readlink_exe_path);
     }
+    program_name = escape_and_free_log_value(program_name);
 
     char *program_args_string = NULL;
     char cmdline_path[MAX_PATH_LEN];
@@ -877,21 +913,22 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         if (length == 0) {
             program_args_string = strdup(STRING_CONST_PROGRAM_ARGS_ERROR);
         } else {
-            program_args_string = (char *)malloc(MAX_BUFFER_SIZE * sizeof(char));
-            program_args_string[0] = '\0';
-            int pas_len = 0;
+            program_args_string = (char *)malloc(length * 3 + 1);
+            if (program_args_string == NULL) {
+                program_args_string = strdup(STRING_CONST_PROGRAM_ARGS_ERROR);
+            } else {
+                char *cursor = program_args_string;
 
-            for (size_t i = 0; i < length; ++i) {
-                if (buffer[i] == '\0' && i+2 < length) { // only add arg separator if there are more args, +2 to acknowledge last '\0'
-                    strcat(program_args_string, STRING_CONST_PROGRAM_ARG_SEPARATOR);
-                    pas_len += strlen(STRING_CONST_PROGRAM_ARG_SEPARATOR);
-                } else if (buffer[i] == ' ' || buffer[i] == '\t') {
-                    strcat(program_args_string, STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE);
-                    pas_len += strlen(STRING_CONST_PROGRAM_ARG_WHITESPACE_SUBSTITUTE);
-                } else {
-                    program_args_string[pas_len++] = buffer[i];
-                    program_args_string[pas_len] = '\0';
+                for (size_t i = 0; i < length; ++i) {
+                    if (buffer[i] == '\0' && i+2 < length) { // only add arg separator if there are more args, +2 to acknowledge last '\0'
+                        size_t separator_length = strlen(STRING_CONST_PROGRAM_ARG_SEPARATOR);
+                        memcpy(cursor, STRING_CONST_PROGRAM_ARG_SEPARATOR, separator_length);
+                        cursor += separator_length;
+                    } else {
+                        append_escaped_byte(&cursor, (unsigned char)buffer[i]);
+                    }
                 }
+                *cursor = '\0';
             }
         }
     }
@@ -940,6 +977,20 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     } else {
         cwd_string = strdup(STRING_CONST_GETCWD_ERROR);
     }
+    cwd_string = escape_and_free_log_value(cwd_string);
+
+    char **escaped_func_args = NULL;
+    bool escaped_func_args_are_owned = true;
+    if (func_num_args > 0) {
+        escaped_func_args = (char **)malloc(func_num_args * sizeof(char *));
+        if (escaped_func_args == NULL) {
+            escaped_func_args = func_args;
+            escaped_func_args_are_owned = false;
+        }
+    }
+    for (int i = 0; i < func_num_args; ++i) {
+        escaped_func_args[i] = allocate_escaped_log_value(func_args[i]);
+    }
 
     // create log_string
     int log_string_len = 0;
@@ -968,7 +1019,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     }
     for(int i = 0; i < func_num_args; i++) {
-        log_string_len += strlen(func_args[i]);
+        log_string_len += strlen(escaped_func_args[i]);
         if (i < func_num_args -1) {
             log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
         }
@@ -1003,7 +1054,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     }
     for(int i = 0; i < func_num_args; i++) {
-        strcat(log_string, func_args[i]);
+        strcat(log_string, escaped_func_args[i]);
         if (i < func_num_args -1) {
             strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
         }
@@ -1037,6 +1088,14 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     free(program_start_time_string);
     free(elapsed_time_string);
     free(cwd_string);
+    if (escaped_func_args_are_owned) {
+        for (int i = 0; i < func_num_args; ++i) {
+            free(escaped_func_args[i]);
+        }
+    }
+    if (escaped_func_args_are_owned) {
+        free(escaped_func_args);
+    }
 
     _in_wrapper_call = false;
     pthread_mutex_unlock(&_log_mutex);
