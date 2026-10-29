@@ -122,6 +122,24 @@ class TestCollectLogEntries:
         assert len(entries) == 1
         assert entries[0].program == "python"
 
+    def test_decodes_percent_encoded_program_name(self, tmp_path: Path) -> None:
+        content = SAMPLE_LOG_LINE.replace(
+            "python%%",
+            "/opt/my%20tools/python%%",
+        )
+        _create_log(tmp_path, 100, content=content)
+        entries = collect_log_entries(tmp_path, DEFAULT_LOG_PREFIX)
+        assert entries[0].program == "/opt/my tools/python"
+
+    def test_preserves_literal_percent_and_hash_characters(self, tmp_path: Path) -> None:
+        content = SAMPLE_LOG_LINE.replace(
+            "python%%",
+            "tool%2520name%%",
+        )
+        _create_log(tmp_path, 100, content=content)
+        entries = collect_log_entries(tmp_path, DEFAULT_LOG_PREFIX)
+        assert entries[0].program == "tool%20name"
+
     def test_program_is_none_for_empty_file(self, tmp_path: Path) -> None:
         _create_log(tmp_path, 100, content="")
         entries = collect_log_entries(tmp_path, DEFAULT_LOG_PREFIX)

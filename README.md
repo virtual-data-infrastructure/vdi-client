@@ -106,6 +106,12 @@ has created such as:
 created PNG-file 'outputs/no.json_map.png'
 ```
 
+Dynamic values such as usernames, home directories, working directories,
+executable paths, command-line arguments, and function arguments are
+percent-encoded in log files. Whitespace, control characters, and literal `%`
+characters are encoded as `%XX`, which keeps every log line space-delimited
+and unambiguous.
+
 ## Additional information about configuration, log file format and debug levels
 
 See [wrapper README](src/vdi_wrapper/README.md) for detailed information.
