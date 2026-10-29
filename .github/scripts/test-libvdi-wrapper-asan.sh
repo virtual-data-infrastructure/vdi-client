@@ -472,6 +472,7 @@ run_download_return_path_test() {
 
   local port
   port=$(cat "$port_file")
+  local url="http://127.0.0.1:$port/"
 
   cat >"$test_dir/test.c" <<'EOF'
 #include <stdio.h>
