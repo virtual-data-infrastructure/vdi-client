@@ -9,6 +9,8 @@ ARCH := $(shell uname -m)
 # define the compiler and flags
 CC = gcc
 CFLAGS = -fPIC -shared -Wall -Wextra -Werror -g
+VDI_EESSI_VERSION ?= unknown
+CFLAGS += -DVDI_EESSI_VERSION=\"$(VDI_EESSI_VERSION)\"
 # embed RUNPATH so libvdi.so finds its EESSI dependencies (libcurl, libdl)
 # without relying on LD_LIBRARY_PATH (which must not be used with EESSI)
 LDFLAGS = -ldl -lcurl -lpthread -Wl,-rpath,$(EESSI_EPREFIX)/lib -Wl,--enable-new-dtags

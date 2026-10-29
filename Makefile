@@ -53,10 +53,11 @@ tsan:
 # The wrapper build directory is cleaned first to force a fresh compile
 # with the correct RUNPATH for the active EESSI version (otherwise Make
 # would skip recompilation since vdi.c hasn't changed between versions).
-install-library-versioned: clean install-library
+install-library-versioned: clean
 ifndef EESSI_VERSION
 	$(error EESSI_VERSION is not set; run 'make install-library-versioned EESSI_VERSION=2023.06')
 endif
+	$(MAKE) -C $(VDI_SRCS_DIR) install VDI_EESSI_VERSION="$(EESSI_VERSION)"
 	@if [ -f "$(LIB_DIR)/$(TARGET)" ]; then \
 		mv "$(LIB_DIR)/$(TARGET)" "$(LIB_DIR)/libvdi_eessi$(EESSI_VERSION).so"; \
 		echo "Installed versioned library: $(LIB_DIR)/libvdi_eessi$(EESSI_VERSION).so"; \

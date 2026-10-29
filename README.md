@@ -87,6 +87,10 @@ grep -v "python.* /cvmfs" /home/almalinux/.vdi/logs/vdi_log.43944.log
 
 we get the following accesses:
 
+The example uses the earlier log format. Current log lines additionally contain
+the EESSI version in the column immediately before the intercepted function
+name.
+
 ```text
 1736344161::2025-01-08+13:49:21+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 39057 open64 /home/almalinux/data-graph/src/ld-preload/examples/map_plot.py 524288::O_RDONLY 438::0666
 1736344161::2025-01-08+13:49:21+UTC nextflow.novalocal//FQHN_ERROR//IPv4%%lo%%127.0.0.1//IPv4%%eth0%%158.39.77.38//IPv6%%lo%%::1//IPv6%%eth0%%2001:700:2:8300::2079//IPv6%%eth0%%fe80::f816:3eff:fe4a:c151%eth0 almalinux /home/almalinux 55715 18260 55715 /home/almalinux/data-graph/src/ld-preload /cvmfs/software.eessi.io/versions/2023.06/software/linux/x86_64/intel/haswell/software/Python/3.11.3-GCCcore-12.3.0/bin/python3.11 python%%examples/map_plot.py%%data/no.json%%--out%%outputs 1736344160%%2025-01-08+13:49:20+UTC 39648 fopen64 /home/almalinux/data-graph/src/ld-preload/examples/map_plot.py rb
@@ -130,8 +134,10 @@ naming convention `vdi_log.<pid>.log` (the prefix can be changed via
 vdi log list
 ```
 
-By default, this prints a short listing (PID and file name). Use `--long` for
-additional details (size, modification time and program name):
+By default, this prints a short listing (PID, EESSI version and file name).
+When the active EESSI version can be detected, only matching logs are shown;
+use `--all` to show logs from every EESSI version. Use `--long` for additional
+details (size, modification time and program name):
 
 ```bash
 vdi log list --long
@@ -145,6 +151,9 @@ vdi log list --sort date
 vdi log list --sort program
 ```
 
+An explicit version can be selected with `--eessi-version`, including
+`--eessi-version unknown` for older logs that predate the EESSI-version field.
+
 ### Showing a log file
 
 ```bash
@@ -152,6 +161,9 @@ vdi log show <pid>
 ```
 
 Prints the contents of `vdi_log.<pid>.log` to stdout.
+
+Like `vdi log list`, this honors the active EESSI version by default. Use
+`--eessi-version` or `--all` to override that selection.
 
 ### Cleaning up log files
 

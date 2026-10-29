@@ -88,12 +88,18 @@ directory. For more information on using the script see
 | 10 | Command line arguments (incl. program name). Separated by `%%`; values are percent-encoded. |
 | 11 | Start time of the program given as epoch and UTC time with the format `EPOCH_TIME%%UTC_TIME`. |
 | 12 | Elapsed time (microseconds) since the start time of the program. |
-| 13 | Name of the intercepted function |
-| 14+ | Arguments of the intercepted function (path, flags, mode, etc) |
+| 13 | EESSI version embedded in the wrapper library (`unknown` for development builds) |
+| 14 | Name of the intercepted function |
+| 15+ | Arguments of the intercepted function (path, flags, mode, etc) |
 
-Dynamic values in columns 3, 4, 8, 9, 10, and 14+ are percent-encoded.
+Dynamic values in columns 3, 4, 8, 9, 10, and 15+ are percent-encoded.
 Whitespace, control characters, and literal `%` characters use `%XX` encoding,
 for example `file with spaces.txt` is logged as `file%20with%20spaces.txt`.
+
+Versioned libraries built with `make install-library-versioned` embed their
+EESSI version and expose it through `vdi_eessi_version()`. Logs created before
+this field was introduced do not contain column 13; `vdi log` reports those
+logs as using EESSI version `unknown`.
 
 ### Configuring log file path and name
 

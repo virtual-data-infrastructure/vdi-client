@@ -78,6 +78,18 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    const char *(*eessi_version)(void) = dlsym(wrapper, "vdi_eessi_version");
+    if (eessi_version == NULL) {
+        fprintf(stderr, "Error: vdi_eessi_version() is unavailable: %s\n", dlerror());
+        dlclose(wrapper);
+        return 2;
+    }
+    if (strcmp(eessi_version(), "unknown") != 0) {
+        fprintf(stderr, "Error: unexpected embedded EESSI version: %s\n", eessi_version());
+        dlclose(wrapper);
+        return 2;
+    }
+
     char stat_line[4096];
     FILE *stat_file = fopen("/proc/self/stat", "r");
     if (stat_file == NULL || fgets(stat_line, sizeof(stat_line), stat_file) == NULL) {
@@ -247,22 +259,22 @@ EOF
   local two_argument_field_count
   two_argument_field_count=$(awk \
     -v pathname="$existing_file" \
-    '$13 == "open64" && $14 == pathname { print NF; found = 1; exit }
+    '$14 == "open64" && $15 == pathname { print NF; found = 1; exit }
      END { if (!found) print 0 }' \
     "$log_file")
-  if [ "$two_argument_field_count" -ne 15 ]; then
-    echo "Error: two-argument open64() logged $two_argument_field_count fields; expected 15."
+  if [ "$two_argument_field_count" -ne 16 ]; then
+    echo "Error: two-argument open64() logged $two_argument_field_count fields; expected 16."
     return 1
   fi
 
   local three_argument_field_count
   three_argument_field_count=$(awk \
     -v pathname="$created_file" \
-    '$13 == "open64" && $14 == pathname { print NF; found = 1; exit }
+    '$14 == "open64" && $15 == pathname { print NF; found = 1; exit }
      END { if (!found) print 0 }' \
     "$log_file")
-  if [ "$three_argument_field_count" -ne 16 ]; then
-    echo "Error: three-argument open64() logged $three_argument_field_count fields; expected 16."
+  if [ "$three_argument_field_count" -ne 17 ]; then
+    echo "Error: three-argument open64() logged $three_argument_field_count fields; expected 17."
     return 1
   fi
 }
@@ -456,9 +468,9 @@ EOF
 
   local reference_open_count
   reference_open_count=$(awk -v config="$openssl_config" '
-    ($13 == "fopen" || $13 == "fopen64" || $13 == "freopen" ||
-     $13 == "open" || $13 == "open64") && $14 == config { count++ }
-    $13 == "fopenat" && $15 == config { count++ }
+    ($14 == "fopen" || $14 == "fopen64" || $14 == "freopen" ||
+     $14 == "open" || $14 == "open64") && $15 == config { count++ }
+    $14 == "fopenat" && $16 == config { count++ }
     END { print count + 0 }
   ' "$reference_log_file")
   if [ "$reference_open_count" -lt 1 ]; then
@@ -496,7 +508,7 @@ EOF
   fi
 
   local direct_fwrite_count
-  direct_fwrite_count=$(awk '$13 == "fwrite" && $14 == 1 && $15 == 1 { count++ } END { print count + 0 }' "$direct_log_file")
+  direct_fwrite_count=$(awk '$14 == "fwrite" && $15 == 1 && $16 == 1 { count++ } END { print count + 0 }' "$direct_log_file")
   if [ "$direct_fwrite_count" -ne 1 ]; then
     echo "Error: found $direct_fwrite_count application fwrite log entries; expected 1."
     return 1
@@ -504,9 +516,9 @@ EOF
 
   local direct_internal_open_count
   direct_internal_open_count=$(awk -v config="$openssl_config" '
-    ($13 == "fopen" || $13 == "fopen64" || $13 == "freopen" ||
-     $13 == "open" || $13 == "open64") && $14 == config { count++ }
-    $13 == "fopenat" && $15 == config { count++ }
+    ($14 == "fopen" || $14 == "fopen64" || $14 == "freopen" ||
+     $14 == "open" || $14 == "open64") && $15 == config { count++ }
+    $14 == "fopenat" && $16 == config { count++ }
     END { print count + 0 }
   ' "$direct_log_file")
   if [ "$direct_internal_open_count" -ne 0 ]; then
@@ -542,14 +554,14 @@ EOF
   fi
 
   local fopen_count
-  fopen_count=$(awk -v url="$url" '$13 == "fopen" && $14 == url { count++ } END { print count + 0 }' "$open_log_file")
+  fopen_count=$(awk -v url="$url" '$14 == "fopen" && $15 == url { count++ } END { print count + 0 }' "$open_log_file")
   if [ "$fopen_count" -ne 1 ]; then
     echo "Error: found $fopen_count fopen log entries; expected 1."
     return 1
   fi
 
   local application_fclose_count
-  application_fclose_count=$(awk '$13 == "fclose" { count++ } END { print count + 0 }' "$open_log_file")
+  application_fclose_count=$(awk '$14 == "fclose" { count++ } END { print count + 0 }' "$open_log_file")
   if [ "$application_fclose_count" -ne 1 ]; then
     echo "Error: found $application_fclose_count application fclose log entries; expected 1."
     return 1
@@ -557,7 +569,7 @@ EOF
 
   local internal_io_count
   internal_io_count=$(awk '
-    $13 == "fwrite" || $13 == "write" { count++ }
+    $14 == "fwrite" || $14 == "write" { count++ }
     END { print count + 0 }
   ' "$open_log_file")
   if [ "$internal_io_count" -ne 0 ]; then
@@ -719,21 +731,21 @@ EOF
   fi
 
   local fwrite_count
-  fwrite_count=$(awk '$13 == "fwrite" && $14 == 1 && $15 == 1 && NF == 16 { count++ } END { print count + 0 }' "$default_log_file")
+  fwrite_count=$(awk '$14 == "fwrite" && $15 == 1 && $16 == 1 && $13 == "unknown" && NF == 17 { count++ } END { print count + 0 }' "$default_log_file")
   if [ "$fwrite_count" -ne 1 ]; then
     echo "Error: found $fwrite_count matching fwrite log entries; expected 1."
     return 1
   fi
 
   local fclose_count
-  fclose_count=$(awk '$13 == "fclose" && NF == 14 { count++ } END { print count + 0 }' "$default_log_file")
+  fclose_count=$(awk '$14 == "fclose" && $13 == "unknown" && NF == 15 { count++ } END { print count + 0 }' "$default_log_file")
   if [ "$fclose_count" -ne 1 ]; then
     echo "Error: found $fclose_count matching fclose log entries; expected 1."
     return 1
   fi
 
   local write_count
-  write_count=$(awk '$13 == "write" && $15 == 1 && NF == 15 { count++ } END { print count + 0 }' "$default_log_file")
+  write_count=$(awk '$14 == "write" && $16 == 1 && $13 == "unknown" && NF == 16 { count++ } END { print count + 0 }' "$default_log_file")
   if [ "$write_count" -ne 1 ]; then
     echo "Error: found $write_count matching one-byte write log entries; expected 1."
     return 1
@@ -747,14 +759,14 @@ EOF
   fi
 
   local suppressed_write_count
-  suppressed_write_count=$(awk '$13 == "write" && $15 == 1 { count++ } END { print count + 0 }' "$threshold_log_file")
+  suppressed_write_count=$(awk '$14 == "write" && $16 == 1 { count++ } END { print count + 0 }' "$threshold_log_file")
   if [ "$suppressed_write_count" -ne 0 ]; then
     echo "Error: found $suppressed_write_count one-byte write log entries; expected 0."
     return 1
   fi
 
   local logged_write_count
-  logged_write_count=$(awk '$13 == "write" && $15 == 2 && NF == 15 { count++ } END { print count + 0 }' "$threshold_log_file")
+  logged_write_count=$(awk '$14 == "write" && $16 == 2 && NF == 16 { count++ } END { print count + 0 }' "$threshold_log_file")
   if [ "$logged_write_count" -ne 1 ]; then
     echo "Error: found $logged_write_count two-byte write log entries; expected 1."
     return 1

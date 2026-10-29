@@ -22,8 +22,10 @@ from typing import Any, Callable
 from urllib.parse import unquote
 
 from vdi_client.config import resolve_log_dir, resolve_log_prefix
+from vdi_client.run import detect_eessi_version
 
 _LOG_NAME_RE_TEMPLATE = r"^{prefix}(\d+)\.log$"
+_EESSI_VERSION_RE = re.compile(r"^\d{4}\.\d{2}$")
 
 
 def _decode_log_value(value: str) -> str:
@@ -50,6 +52,7 @@ class LogEntry:
         size: File size in bytes.
         mtime: Last modification time.
         program: Program name parsed from the first log line, or ``None``.
+        eessi_version: EESSI version parsed from the first log line.
     """
 
     pid: int
@@ -57,6 +60,40 @@ class LogEntry:
     size: int
     mtime: float
     program: str | None
+    eessi_version: str
+
+
+def _parse_log_metadata(path: Path) -> tuple[str | None, str]:
+    """Parse metadata from the first line of a log file.
+
+    Old-format logs have no EESSI version field and are reported as ``unknown``.
+
+    Args:
+        path: Path to the log file.
+
+    Returns:
+        The program name (or ``None``) and EESSI version.
+    """
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as file:
+            first_line = file.readline()
+    except OSError:
+        return None, "unknown"
+
+    parts = first_line.split()
+    if len(parts) < 10:
+        return None, "unknown"
+
+    cmd_parts = parts[9].split("%%")
+    program = _decode_log_value(cmd_parts[0]) if cmd_parts else None
+
+    eessi_version = "unknown"
+    if len(parts) > 12:
+        candidate = _decode_log_value(parts[12])
+        if candidate == "unknown" or _EESSI_VERSION_RE.fullmatch(candidate):
+            eessi_version = candidate
+
+    return (program or None), eessi_version
 
 
 def _parse_pid_from_name(filename: str, prefix: str) -> int | None:
@@ -74,45 +111,6 @@ def _parse_pid_from_name(filename: str, prefix: str) -> int | None:
     if match:
         return int(match.group(1))
     return None
-
-
-def _parse_program_from_log(path: Path) -> str | None:
-    """Extract the program name from the first line of a log file.
-
-    The log file format stores the command line (including the program name)
-    in column 10, with arguments separated by ``%%``. Values are
-    percent-encoded and the program name is the first decoded argument.
-
-    Args:
-        path: Path to the log file.
-
-    Returns:
-        The program name, or ``None`` if it cannot be determined.
-    """
-    try:
-        with path.open("r", encoding="utf-8", errors="replace") as file:
-            first_line = file.readline()
-    except OSError:
-        return None
-
-    if not first_line.strip():
-        return None
-
-    # Columns are separated by spaces; column 10 (0-indexed: 9) is the
-    # command line. Whitespace and percent signs in values are percent-encoded,
-    # while %% separates command-line arguments.
-    parts = first_line.split()
-    if len(parts) < 10:
-        return None
-
-    cmd_column = parts[9]
-    # The command line column uses %% to separate arguments.
-    cmd_parts = cmd_column.split("%%")
-    if not cmd_parts:
-        return None
-
-    program = _decode_log_value(cmd_parts[0])
-    return program if program else None
 
 
 def collect_log_entries(
@@ -142,13 +140,15 @@ def collect_log_entries(
             stat = item.stat()
         except OSError:
             continue
+        program, eessi_version = _parse_log_metadata(item)
         entries.append(
             LogEntry(
                 pid=pid,
                 path=item,
                 size=stat.st_size,
                 mtime=stat.st_mtime,
-                program=_parse_program_from_log(item),
+                program=program,
+                eessi_version=eessi_version,
             )
         )
     return entries
@@ -180,6 +180,32 @@ def _sort_entries(
     return sorted(entries, key=key_func, reverse=reverse)
 
 
+def _select_entries(
+    entries: list[LogEntry],
+    eessi_version_override: str | None,
+    all_versions: bool,
+) -> tuple[list[LogEntry], str | None, int]:
+    """Select log entries using the requested EESSI-version policy.
+
+    Args:
+        entries: All collected log entries.
+        eessi_version_override: Explicit version to match, if any.
+        all_versions: Whether to bypass default filtering.
+
+    Returns:
+        Selected entries, applied filter, and number of hidden entries.
+    """
+    if eessi_version_override is not None:
+        version_filter = eessi_version_override
+    elif all_versions or (active_version := detect_eessi_version()) is None:
+        return entries, None, 0
+    else:
+        version_filter = active_version
+
+    selected = [entry for entry in entries if entry.eessi_version == version_filter]
+    return selected, version_filter, len(entries) - len(selected)
+
+
 def _format_size(size: int) -> str:
     """Format a byte count into a human-readable string."""
     for unit in ("B", "K", "M", "G", "T"):
@@ -201,6 +227,8 @@ def list_logs(
     sort_key: str = "pid",
     reverse: bool = False,
     long_format: bool = False,
+    eessi_version_override: str | None = None,
+    all_versions: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
 ) -> int:
@@ -212,6 +240,8 @@ def list_logs(
         sort_key: Sort key which is one of ``pid``, ``date``, ``size``, ``program``.
         reverse: If ``True``, reverse the sort order.
         long_format: If ``True``, show size, date and program name.
+        eessi_version_override: Optional explicit EESSI version to show.
+        all_versions: If ``True``, bypass default EESSI-version filtering.
         dry_run: If ``True``, print what would be done without scanning files.
         verbose: If ``True``, print extra diagnostic information.
 
@@ -232,24 +262,42 @@ def list_logs(
         print(f"No log directory found at '{log_dir}'.")
         return 0
 
-    entries = collect_log_entries(log_dir, prefix)
+    all_entries = collect_log_entries(log_dir, prefix)
+    entries, version_filter, hidden_count = _select_entries(
+        all_entries,
+        eessi_version_override,
+        all_versions,
+    )
     entries = _sort_entries(entries, sort_key, reverse)
 
     if not entries:
-        print(f"No log files found in '{log_dir}'.")
+        if version_filter is None:
+            print(f"No log files found in '{log_dir}'.")
+        else:
+            print(f"No log files found for EESSI {version_filter} in '{log_dir}'.")
         return 0
 
     if long_format:
-        print(f"{'PID':>10}  {'Size':>8}  {'Modified':<19}  Program")
-        print(f"{'---':>10}  {'----':>8}  {'--------':<19}  -------")
+        print(f"{'PID':>10}  {'Size':>8}  {'Modified':<19}  {'EESSI':<7}  Program")
+        print(f"{'---':>10}  {'----':>8}  {'--------':<19}  {'-----':<7}  -------")
         for entry in entries:
             program = entry.program or "?"
-            print(f"{entry.pid:>10}  {_format_size(entry.size):>8}  {_format_mtime(entry.mtime):<19}  {program}")
+            print(
+                f"{entry.pid:>10}  {_format_size(entry.size):>8}  "
+                f"{_format_mtime(entry.mtime):<19}  {entry.eessi_version:<7}  {program}"
+            )
     else:
-        print(f"{'PID':>10}  File")
-        print(f"{'---':>10}  ----")
+        print(f"{'PID':>10}  {'EESSI':<7}  File")
+        print(f"{'---':>10}  {'-----':<7}  ----")
         for entry in entries:
-            print(f"{entry.pid:>10}  {entry.path.name}")
+            print(f"{entry.pid:>10}  {entry.eessi_version:<7}  {entry.path.name}")
+
+    uses_default_filter = eessi_version_override is None and not all_versions
+    if hidden_count and uses_default_filter:
+        print(
+            f"Showing logs for EESSI {version_filter}; {hidden_count} other log(s) available "
+            "(use --eessi-version to filter, or --all to show all)"
+        )
 
     return 0
 
@@ -261,6 +309,8 @@ def show_log(
     log_prefix_override: str | None = None,
     dry_run: bool = False,
     verbose: bool = False,
+    eessi_version_override: str | None = None,
+    all_versions: bool = False,
 ) -> int:
     """Print the contents of a specific VDI log file.
 
@@ -270,13 +320,28 @@ def show_log(
         log_prefix_override: Optional explicit log file name prefix.
         dry_run: If ``True``, print what would be done without reading the file.
         verbose: If ``True``, print extra diagnostic information.
+        eessi_version_override: Optional explicit EESSI version to show.
+        all_versions: If ``True``, bypass default EESSI-version filtering.
 
     Returns:
         Exit code (0 on success, non-zero on error).
     """
     log_dir = resolve_log_dir(log_dir_override)
     prefix = resolve_log_prefix(log_prefix_override)
-    log_path = log_dir / f"{prefix}{pid}.log"
+    entries = collect_log_entries(log_dir, prefix)
+    selected, version_filter, _ = _select_entries(
+        entries,
+        eessi_version_override,
+        all_versions,
+    )
+    matching_entry = next((entry for entry in selected if entry.pid == pid), None)
+    if matching_entry is None:
+        log_path = log_dir / f"{prefix}{pid}.log"
+        if not dry_run:
+            print(f"Error: log file not found: '{log_path}'", file=sys.stderr)
+            return 1
+    else:
+        log_path = matching_entry.path
 
     if dry_run:
         print(f"dry-run: show log '{log_path}'")

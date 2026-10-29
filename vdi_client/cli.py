@@ -217,6 +217,19 @@ def create_parser() -> argparse.ArgumentParser:
         default=False,
         help="show size, modification time and program name",
     )
+    log_list_p.add_argument(
+        "--eessi-version",
+        dest="eessi_version",
+        default=None,
+        help="show only logs for this EESSI version",
+    )
+    log_list_p.add_argument(
+        "--all",
+        dest="all_versions",
+        action="store_true",
+        default=False,
+        help="show logs for all EESSI versions",
+    )
 
     log_show_p = log_sub.add_parser("show", help="print the contents of a log file")
     _add_common_args(log_show_p, suppress_defaults=True)
@@ -231,6 +244,19 @@ def create_parser() -> argparse.ArgumentParser:
         dest="log_prefix",
         default=argparse.SUPPRESS,
         help="prefix for log file names [default: $VDI_LOG_FILE_PREFIX or 'vdi_log.']",
+    )
+    log_show_p.add_argument(
+        "--eessi-version",
+        dest="eessi_version",
+        default=None,
+        help="show the log only if it matches this EESSI version",
+    )
+    log_show_p.add_argument(
+        "--all",
+        dest="all_versions",
+        action="store_true",
+        default=False,
+        help="show logs for all EESSI versions",
     )
     log_show_p.add_argument("pid", type=int, help="process ID of the log file to show")
 
@@ -333,6 +359,8 @@ def _handle_log(args: argparse.Namespace) -> int:
             sort_key=args.sort_key,
             reverse=args.reverse,
             long_format=args.long_format,
+            eessi_version_override=args.eessi_version,
+            all_versions=args.all_versions,
             dry_run=args.dry_run,
             verbose=args.verbose,
         )
@@ -341,6 +369,8 @@ def _handle_log(args: argparse.Namespace) -> int:
             args.pid,
             log_dir_override=log_dir,
             log_prefix_override=log_prefix,
+            eessi_version_override=args.eessi_version,
+            all_versions=args.all_versions,
             dry_run=args.dry_run,
             verbose=args.verbose,
         )
