@@ -488,6 +488,8 @@ EOF
   direct_log_line_count=$(wc -l <"$direct_log_file" | tr -d ' ')
   if [ "$direct_log_line_count" -ne 1 ]; then
     echo "Error: direct download created $direct_log_line_count log entries; expected 1."
+    echo "=== Unexpected direct download log ==="
+    cat "$direct_log_file"
     return 1
   fi
 
@@ -532,6 +534,8 @@ EOF
   open_log_line_count=$(wc -l <"$open_log_file" | tr -d ' ')
   if [ "$open_log_line_count" -ne 2 ]; then
     echo "Error: open-family download created $open_log_line_count log entries; expected 2."
+    echo "=== Unexpected open-family download log ==="
+    cat "$open_log_file"
     return 1
   fi
 
