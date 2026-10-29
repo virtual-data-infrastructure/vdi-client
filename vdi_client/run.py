@@ -153,9 +153,7 @@ def _validate_library_version(lib_path: Path) -> None:
 
     embedded_version = read_embedded_eessi_version(lib_path)
     if embedded_version is None:
-        raise RuntimeError(
-            f"Could not determine the EESSI version embedded in '{lib_path}'."
-        )
+        raise RuntimeError(f"Could not determine the EESSI version embedded in '{lib_path}'.")
 
     if active_version != embedded_version:
         raise RuntimeError(

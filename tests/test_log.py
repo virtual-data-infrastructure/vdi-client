@@ -408,16 +408,22 @@ class TestShowLog:
     ) -> None:
         monkeypatch.delenv("EESSI_EPREFIX", raising=False)
         _create_log(tmp_path, 100, content=VERSIONED_SAMPLE_LOG_LINE + "\n")
-        assert show_log(
-            100,
-            log_dir_override=str(tmp_path),
-            eessi_version_override="2026.06",
-        ) == 1
-        assert show_log(
-            100,
-            log_dir_override=str(tmp_path),
-            eessi_version_override="2025.06",
-        ) == 0
+        assert (
+            show_log(
+                100,
+                log_dir_override=str(tmp_path),
+                eessi_version_override="2026.06",
+            )
+            == 1
+        )
+        assert (
+            show_log(
+                100,
+                log_dir_override=str(tmp_path),
+                eessi_version_override="2025.06",
+            )
+            == 0
+        )
 
 
 class TestCleanLogs:
