@@ -13,68 +13,13 @@ fi
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$REPO_ROOT"
+source "$REPO_ROOT/.github/scripts/lib/http-server.sh"
 
 echo "=== Build ASan-instrumented wrapper ==="
 make clean
 make asan
 
 TEST_ROOT=$(mktemp -d)
-HTTP_PID=""
-
-start_http_server() {
-  local server_dir=$1
-  local port=$2
-
-  mkdir -p "$server_dir"
-
-  cat >"$server_dir/server.py" <<'EOF'
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import sys
-
-
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = b"hello from vdi\n"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format, *args):
-        pass
-
-
-HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
-EOF
-
-  python3 "$server_dir/server.py" "$port" \
-    >"$server_dir/http.log" 2>&1 &
-  HTTP_PID=$!
-}
-
-wait_for_http_server() {
-  local port=$1
-  local server_dir=$2
-
-  for _ in $(seq 1 30); do
-    if python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$port/', timeout=1).read(1)" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.2
-  done
-
-  echo "Error: HTTP server on port $port did not become ready."
-  cat "$server_dir/http.log"
-  return 1
-}
-
-stop_http_server() {
-  if [ -n "$HTTP_PID" ]; then
-    kill "$HTTP_PID" 2>/dev/null || true
-    HTTP_PID=""
-  fi
-}
 
 cleanup() {
   stop_http_server
@@ -369,7 +314,7 @@ run_download_allocation_ownership_test() {
   # download_base and local_filename without unrelated logging allocations.
   local test_dir="$TEST_ROOT/download-allocation-ownership"
   local downloads_dir="$test_dir/downloads"
-  local port=8001
+  local port_file="$test_dir/http/port"
   local detect_leaks=1
 
   if [ "$(uname -m)" = "riscv64" ]; then
@@ -377,8 +322,11 @@ run_download_allocation_ownership_test() {
   fi
 
   mkdir -p "$test_dir"
-  start_http_server "$test_dir/http" "$port"
-  wait_for_http_server "$port" "$test_dir/http"
+  start_http_server "$test_dir/http" "$port_file"
+  wait_for_http_server "$test_dir/http" "$port_file"
+
+  local port
+  port=$(cat "$port_file")
 
   cat >"$test_dir/openssl.supp" <<'EOF'
 leak:CRYPTO_malloc
@@ -516,18 +464,26 @@ run_download_return_path_test() {
   # - The URL has no filename, so local_filename is heap-allocated.
   # - LeakSanitizer is disabled, while ASan memory-error checks remain enabled.
   local test_dir="$TEST_ROOT/download-return-path"
-  local port=8000
+  local port_file="$test_dir/http/port"
 
   mkdir -p "$test_dir/logs"
-  start_http_server "$test_dir/http" "$port"
-  wait_for_http_server "$port" "$test_dir/http"
+  start_http_server "$test_dir/http" "$port_file"
+  wait_for_http_server "$test_dir/http" "$port_file"
+
+  local port
+  port=$(cat "$port_file")
+  local url="http://127.0.0.1:$port/"
 
   cat >"$test_dir/test.c" <<'EOF'
 #include <stdio.h>
 
 
-int main(void) {
-    FILE *file = fopen("http://127.0.0.1:8000/", "r");
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        return 2;
+    }
+
+    FILE *file = fopen(argv[1], "r");
     if (file == NULL) {
         return 1;
     }
@@ -556,7 +512,7 @@ EOF
   LD_PRELOAD="$ASAN_RUNTIME:$PWD/src/vdi_wrapper/build/libvdi-asan.so" \
   ASAN_OPTIONS=detect_stack_use_after_return=1:detect_leaks=0 \
   VDI_LOG_DIR="$TEST_ROOT/download-return-path/logs" \
-  "$test_dir/test" >"$test_dir/test-output.txt"
+  "$test_dir/test" "$url" >"$test_dir/test-output.txt"
 
   cat "$test_dir/test-output.txt"
 
