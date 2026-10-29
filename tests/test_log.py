@@ -17,6 +17,7 @@ from vdi_client.config import (
     resolve_log_prefix,
 )
 from vdi_client.log import (
+    _parse_log_metadata,
     clean_logs,
     collect_log_entries,
     list_logs,
@@ -36,6 +37,11 @@ SAMPLE_LOG_LINE = (
     "1736344160%%2025-01-08+13:49:20+UTC 39057 open64 "
     "/home/almalinux/data-graph/src/ld-preload/examples/map_plot.py "
     "524288::O_RDONLY 438::0666"
+)
+
+VERSIONED_SAMPLE_LOG_LINE = SAMPLE_LOG_LINE.replace(
+    "39057 open64 ",
+    "39057 2025.06 open64 ",
 )
 
 
@@ -122,6 +128,16 @@ class TestCollectLogEntries:
         assert len(entries) == 1
         assert entries[0].program == "python"
 
+    def test_parses_new_log_metadata(self, tmp_path: Path) -> None:
+        path = _create_log(tmp_path, 100, content=VERSIONED_SAMPLE_LOG_LINE + "\n")
+        metadata = _parse_log_metadata(path)
+        assert metadata == ("python", "2025.06")
+
+    def test_treats_old_log_as_unknown_version(self, tmp_path: Path) -> None:
+        path = _create_log(tmp_path, 100)
+        metadata = _parse_log_metadata(path)
+        assert metadata == ("python", "unknown")
+
     def test_decodes_percent_encoded_program_name(self, tmp_path: Path) -> None:
         content = SAMPLE_LOG_LINE.replace(
             "python%%",
@@ -180,6 +196,71 @@ class TestListLogs:
         _create_log(tmp_path, 100)
         _create_log(tmp_path, 200)
         result = list_logs(log_dir_override=str(tmp_path))
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "vdi_log.100.log" in captured.out
+        assert "vdi_log.200.log" in captured.out
+
+    def test_list_shows_eessi_version(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        _create_log(tmp_path, 100, content=VERSIONED_SAMPLE_LOG_LINE + "\n")
+        result = list_logs(log_dir_override=str(tmp_path))
+        assert result == 0
+        assert "2025.06" in capsys.readouterr().out
+
+    def test_list_filters_by_explicit_eessi_version(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        _create_log(tmp_path, 100, content=VERSIONED_SAMPLE_LOG_LINE + "\n")
+        _create_log(
+            tmp_path,
+            200,
+            content=VERSIONED_SAMPLE_LOG_LINE.replace("2025.06", "2026.06") + "\n",
+        )
+        result = list_logs(
+            log_dir_override=str(tmp_path),
+            eessi_version_override="2025.06",
+        )
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "vdi_log.100.log" in captured.out
+        assert "vdi_log.200.log" not in captured.out
+
+    def test_list_defaults_to_current_version_and_hints(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
+        _create_log(tmp_path, 100, content=VERSIONED_SAMPLE_LOG_LINE + "\n")
+        _create_log(
+            tmp_path,
+            200,
+            content=VERSIONED_SAMPLE_LOG_LINE.replace("2025.06", "2026.06") + "\n",
+        )
+        result = list_logs(log_dir_override=str(tmp_path))
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "vdi_log.100.log" in captured.out
+        assert "vdi_log.200.log" not in captured.out
+        assert "1 other log" in captured.out
+
+    def test_list_all_bypasses_default_filter(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
+        _create_log(tmp_path, 100, content=VERSIONED_SAMPLE_LOG_LINE + "\n")
+        _create_log(
+            tmp_path,
+            200,
+            content=VERSIONED_SAMPLE_LOG_LINE.replace("2025.06", "2026.06") + "\n",
+        )
+        result = list_logs(log_dir_override=str(tmp_path), all_versions=True)
         assert result == 0
         captured = capsys.readouterr()
         assert "vdi_log.100.log" in captured.out
@@ -304,6 +385,39 @@ class TestShowLog:
         assert result == 0
         captured = capsys.readouterr()
         assert "custom" in captured.out
+
+    def test_show_uses_default_eessi_filter(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
+        _create_log(tmp_path, 100, content=VERSIONED_SAMPLE_LOG_LINE + "\n")
+        _create_log(
+            tmp_path,
+            200,
+            content=VERSIONED_SAMPLE_LOG_LINE.replace("2025.06", "2026.06") + "\n",
+        )
+        assert show_log(100, log_dir_override=str(tmp_path)) == 0
+        assert show_log(200, log_dir_override=str(tmp_path)) == 1
+
+    def test_show_explicit_version_filter(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("EESSI_EPREFIX", raising=False)
+        _create_log(tmp_path, 100, content=VERSIONED_SAMPLE_LOG_LINE + "\n")
+        assert show_log(
+            100,
+            log_dir_override=str(tmp_path),
+            eessi_version_override="2026.06",
+        ) == 1
+        assert show_log(
+            100,
+            log_dir_override=str(tmp_path),
+            eessi_version_override="2025.06",
+        ) == 0
 
 
 class TestCleanLogs:

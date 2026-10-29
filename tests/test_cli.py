@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -111,11 +112,23 @@ class TestParser:
         assert args.reverse is True
         assert args.long_format is True
 
+    def test_parser_log_list_eessi_filters(self) -> None:
+        parser = create_parser()
+        args = parser.parse_args(["log", "list", "--eessi-version", "2025.06", "--all"])
+        assert args.eessi_version == "2025.06"
+        assert args.all_versions is True
+
     def test_parser_log_show(self) -> None:
         parser = create_parser()
         args = parser.parse_args(["log", "show", "12345"])
         assert args.subcommand == "show"
         assert args.pid == 12345
+
+    def test_parser_log_show_eessi_filters(self) -> None:
+        parser = create_parser()
+        args = parser.parse_args(["log", "show", "--eessi-version", "2025.06", "--all", "12345"])
+        assert args.eessi_version == "2025.06"
+        assert args.all_versions is True
 
     def test_parser_log_clean(self) -> None:
         parser = create_parser()
@@ -333,10 +346,17 @@ class TestMainLogDispatch:
 class TestMainRunDispatch:
     """Tests for run subcommand dispatch via main()."""
 
-    def test_main_run_dry_run(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_main_run_dry_run(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         lib = tmp_path / "libvdi.so"
         lib.write_text("dummy")
-        result = main(["run", "--lib", str(lib), "--dry-run", "ls", "-la"])
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
+        with mock.patch("vdi_client.run.read_embedded_eessi_version", return_value="2025.06"):
+            result = main(["run", "--lib", str(lib), "--dry-run", "ls", "-la"])
         assert result == 0
         captured = capsys.readouterr()
         assert "dry-run" in captured.out

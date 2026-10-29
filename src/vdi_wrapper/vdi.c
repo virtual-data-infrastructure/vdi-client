@@ -33,6 +33,10 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#ifndef VDI_EESSI_VERSION
+#define VDI_EESSI_VERSION "unknown"
+#endif
+
 bool _global_show_log_path = true;
 int _global_debug_level = 0;
 size_t _global_min_write_bytes = 1;
@@ -91,6 +95,10 @@ const char* STRING_CONST_ENVVAR_VDI_DOWNLOAD_BASE = "VDI_DOWNLOAD_BASE";
 const char* STRING_CONST_DOWNLOAD_BASE_DEFAULT = "/tmp/%s/vdi/downloads"; // replace with $USER
 const char* STRING_CONST_DOWNLOAD_FILENAME_TEMPLATE = "%d.%d.%s"; // $$.EPOCH.filename_from_url
 const char* STRING_CONST_DOWNLOAD_FILENAME_DEFAULT = "default_filename";
+
+const char *vdi_eessi_version(void) {
+    return VDI_EESSI_VERSION;
+}
 
 const char *URL_PREFIXES[] = {
   "https://",
@@ -1027,6 +1035,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(elapsed_time_string);
     log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
+    log_string_len += strlen(VDI_EESSI_VERSION);
+    log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
     log_string_len += strlen(func_name);
     if (func_num_args > 0) {
         log_string_len += strlen(STRING_CONST_LOG_COLUMN_SEPARATOR); // add space for column separator
@@ -1061,6 +1071,8 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
     strcat(log_string, program_start_time_string);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, elapsed_time_string);
+    strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
+    strcat(log_string, VDI_EESSI_VERSION);
     strcat(log_string, STRING_CONST_LOG_COLUMN_SEPARATOR); // add column separator
     strcat(log_string, func_name);
     if (func_num_args > 0) {

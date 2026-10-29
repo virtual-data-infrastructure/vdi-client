@@ -9,6 +9,7 @@ via ``LD_PRELOAD`` so that file-system calls are intercepted and logged.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import re
 import sys
@@ -20,20 +21,55 @@ VDI_LIB_PATH_ENV = "VDI_LIB_PATH"
 # Pattern to extract the EESSI version from an EESSI_EPREFIX path such as
 # /cvmfs/software.eessi.io/versions/2023.06/compat/linux/x86_64
 _EESSI_VERSION_RE = re.compile(r"/versions/(\d{4}\.\d{2})/")
+_EESSI_VERSION_FORMAT_RE = re.compile(r"^\d{4}\.\d{2}$")
 
 
-def _detect_eessi_version() -> str | None:
-    """Detect the active EESSI version from the ``EESSI_EPREFIX`` env var.
+def detect_eessi_version() -> str | None:
+    """Detect the active EESSI version.
+
+    ``EESSI_VERSION`` is preferred when set; otherwise the version is parsed
+    from ``EESSI_EPREFIX``.
 
     Returns:
         The EESSI version string (e.g. ``"2023.06"``) or ``None`` if the
         environment variable is not set or the version cannot be parsed.
     """
+    version = os.environ.get("EESSI_VERSION")
+    if version and _EESSI_VERSION_FORMAT_RE.fullmatch(version):
+        return version
+
     eprefix = os.environ.get("EESSI_EPREFIX")
     if not eprefix:
         return None
     match = _EESSI_VERSION_RE.search(eprefix)
     return match.group(1) if match else None
+
+
+def read_embedded_eessi_version(lib_path: Path) -> str | None:
+    """Read the EESSI version embedded in a VDI shared library.
+
+    Args:
+        lib_path: Path to the shared library.
+
+    Returns:
+        The embedded version, or ``None`` if it is unavailable or malformed.
+    """
+    try:
+        library = ctypes.CDLL(str(lib_path))
+        version_function = library.vdi_eessi_version
+    except (OSError, AttributeError):
+        return None
+
+    version_function.restype = ctypes.c_char_p
+    version = version_function()
+    if version is None:
+        return None
+
+    try:
+        decoded = version.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    return decoded if _EESSI_VERSION_FORMAT_RE.fullmatch(decoded) else None
 
 
 def resolve_lib_path(lib_override: str | None = None) -> Path:
@@ -71,7 +107,7 @@ def resolve_lib_path(lib_override: str | None = None) -> Path:
             lib_dir = package_dir / "lib"
 
             # Try versioned library matching the active EESSI version
-            eessi_version = _detect_eessi_version()
+            eessi_version = detect_eessi_version()
             if eessi_version:
                 versioned_candidate = lib_dir / f"libvdi_eessi{eessi_version}.so"
                 if versioned_candidate.is_file():
@@ -99,6 +135,33 @@ def resolve_lib_path(lib_override: str | None = None) -> Path:
             f"Set the {VDI_LIB_PATH_ENV} environment variable or use --lib to specify its location."
         )
     return candidate
+
+
+def _validate_library_version(lib_path: Path) -> None:
+    """Validate that a selected library matches the active EESSI version.
+
+    Args:
+        lib_path: Path to the selected VDI shared library.
+
+    Raises:
+        RuntimeError: If no active EESSI version is detectable, the library has
+            no readable embedded version, or the two versions differ.
+    """
+    active_version = detect_eessi_version()
+    if active_version is None:
+        raise RuntimeError("Could not detect the active EESSI version.")
+
+    embedded_version = read_embedded_eessi_version(lib_path)
+    if embedded_version is None:
+        raise RuntimeError(
+            f"Could not determine the EESSI version embedded in '{lib_path}'."
+        )
+
+    if active_version != embedded_version:
+        raise RuntimeError(
+            f"VDI library '{lib_path}' was built for EESSI {embedded_version}, "
+            f"but the active EESSI version is {active_version}."
+        )
 
 
 def run(
@@ -130,7 +193,8 @@ def run(
 
     try:
         lib_path = resolve_lib_path(lib_override)
-    except FileNotFoundError as exc:
+        _validate_library_version(lib_path)
+    except (FileNotFoundError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

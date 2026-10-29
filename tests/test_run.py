@@ -9,7 +9,23 @@ from unittest import mock
 
 import pytest
 
-from vdi_client.run import resolve_lib_path, run
+from vdi_client.run import detect_eessi_version, resolve_lib_path, run
+
+
+class TestDetectEessiVersion:
+    """Tests for detect_eessi_version()."""
+
+    def test_prefers_eessi_version_variable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("EESSI_VERSION", "2024.02")
+        assert detect_eessi_version() == "2024.02"
+
+    def test_uses_eprefix_when_version_is_unset(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("EESSI_VERSION", raising=False)
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
+        assert detect_eessi_version() == "2025.06"
 
 
 class TestResolveLibPath:
@@ -69,6 +85,12 @@ class TestResolveLibPath:
 class TestRun:
     """Tests for run()."""
 
+    @pytest.fixture(autouse=True)
+    def active_eessi(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
+        with mock.patch("vdi_client.run.read_embedded_eessi_version", return_value="2025.06"):
+            yield
+
     def test_run_without_program_returns_error(self, capsys: pytest.CaptureFixture[str]) -> None:
         result = run(None, [], dry_run=True)
         assert result == 1
@@ -87,6 +109,60 @@ class TestRun:
         captured = capsys.readouterr()
         assert "dry-run" in captured.out
         assert "ls" in captured.out
+
+    def test_run_rejects_missing_active_eessi_version(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        lib = tmp_path / "libvdi.so"
+        lib.write_text("dummy")
+        monkeypatch.delenv("EESSI_VERSION", raising=False)
+        monkeypatch.delenv("EESSI_EPREFIX", raising=False)
+        result = run("ls", [], lib_override=str(lib), dry_run=True)
+        assert result == 1
+        assert "Could not detect the active EESSI version" in capsys.readouterr().err
+
+    def test_run_rejects_library_runtime_version_mismatch(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        lib = tmp_path / "libvdi.so"
+        lib.write_text("dummy")
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2026.06/compat/linux/x86_64")
+        with mock.patch("vdi_client.run.read_embedded_eessi_version", return_value="2025.06"):
+            result = run("ls", [], lib_override=str(lib), dry_run=True)
+        assert result == 1
+        assert "active EESSI version is 2026.06" in capsys.readouterr().err
+
+    def test_run_rejects_library_without_embedded_version(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        lib = tmp_path / "libvdi.so"
+        lib.write_text("dummy")
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
+        with mock.patch("vdi_client.run.read_embedded_eessi_version", return_value=None):
+            result = run("ls", [], lib_override=str(lib), dry_run=True)
+        assert result == 1
+        assert "Could not determine the EESSI version embedded" in capsys.readouterr().err
+
+    def test_run_accepts_matching_library_version(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        lib = tmp_path / "libvdi.so"
+        lib.write_text("dummy")
+        monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
+        with mock.patch("vdi_client.run.read_embedded_eessi_version", return_value="2025.06"):
+            result = run("ls", [], lib_override=str(lib), dry_run=True)
+        assert result == 0
 
     def test_run_dry_run_verbose_prints_lib_path(
         self,
