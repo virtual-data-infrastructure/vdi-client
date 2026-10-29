@@ -387,7 +387,9 @@ size_t write_data(void *ptr, size_t size, size_t nmemb, FILE *stream) {
 // ENOENT - no such file or directory
 // ENOMEM - out of memory
 // ENOSPC - no space left on device
-int download(const char *url, char **local_path) {
+// static keeps this helper private to this source file; it is not exported
+// from the shared library.
+static int download_unguarded(const char *url, char **local_path) {
   // default local download location: /tmp/$USER/vdi/downloads/$$.EPOCH.filename_from_url
   // if env var VDI_DOWNLOAD_BASE is set, use $VDI_DOWNLOAD_BASE/$$.EPOCH.filename_from_url
   // STRING_CONST_DOWNLOAD_BASE_DEFAULT = "/tmp/%s/vdi/downloads"; // replace with $USER
@@ -506,6 +508,16 @@ int download(const char *url, char **local_path) {
 
   free(fullpath_directory);
   return 0;
+}
+
+int download(const char *url, char **local_path) {
+  bool previous_in_wrapper_call = _in_wrapper_call;
+  _in_wrapper_call = true;
+
+  int result = download_unguarded(url, local_path);
+
+  _in_wrapper_call = previous_in_wrapper_call;
+  return result;
 }
 
 char *expand_shell_vars(const char *str) {
