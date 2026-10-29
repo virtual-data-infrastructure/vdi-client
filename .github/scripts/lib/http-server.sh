@@ -44,11 +44,13 @@ wait_for_http_server() {
   local server_dir=$1
   local port_file=$2
 
+  # Cold EESSI/CVMFS runners may take several seconds to start Python and
+  # import http.server, so allow ample time for the ephemeral port file.
   for _ in $(seq 1 30); do
     if [ -s "$port_file" ]; then
       return 0
     fi
-    sleep 0.2
+    sleep 1
   done
 
   echo "Error: HTTP server did not become ready."
