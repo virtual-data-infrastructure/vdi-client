@@ -467,13 +467,15 @@ EOF
   fi
 
   echo "=== Run direct download reentrancy test ==="
+  local direct_stderr_file="$test_dir/direct-stderr.txt"
   if ! LD_PRELOAD="$PWD/src/vdi_wrapper/build/libvdi.so" \
     VDI_DOWNLOAD_BASE="$downloads_dir" \
     VDI_LOG_DIR="$direct_logs_dir" \
     VDI_LOG_FILE_PREFIX="download-direct." \
     OPENSSL_CONF="$openssl_config" \
-    "$test_dir/test" direct "$url"; then
+    "$test_dir/test" direct "$url" 2>"$direct_stderr_file"; then
     echo "Error: direct download reentrancy test failed."
+    cat "$direct_stderr_file"
     return 1
   fi
 
