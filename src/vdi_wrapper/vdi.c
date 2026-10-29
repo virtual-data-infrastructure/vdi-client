@@ -664,12 +664,13 @@ long long get_process_start_time(pid_t pid) {
 
 int log_call(const char *func_name, int func_num_args, char **func_args) {
     pthread_mutex_lock(&_log_mutex);
+    bool previous_in_wrapper_call = _in_wrapper_call;
     _in_wrapper_call = true;
 
     char *log_path = get_log_path();
     if (log_path == NULL) {
         perror("Failed to allocate log path");
-        _in_wrapper_call = false;
+        _in_wrapper_call = previous_in_wrapper_call;
         pthread_mutex_unlock(&_log_mutex);
         return EXIT_FAILURE;
     }
@@ -689,7 +690,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
             perror(err_msg);
             free(log_dir);
             free(log_path);
-            _in_wrapper_call = false;
+            _in_wrapper_call = previous_in_wrapper_call;
             pthread_mutex_unlock(&_log_mutex);
             return EXIT_FAILURE;
         }
@@ -700,7 +701,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
             // cannot open log_path -> just return for now
             perror("Failed to open file");
             free(log_path);
-            _in_wrapper_call = false;
+            _in_wrapper_call = previous_in_wrapper_call;
             pthread_mutex_unlock(&_log_mutex);
             return EXIT_FAILURE;
         }
@@ -1109,7 +1110,7 @@ int log_call(const char *func_name, int func_num_args, char **func_args) {
         free(escaped_func_args);
     }
 
-    _in_wrapper_call = false;
+    _in_wrapper_call = previous_in_wrapper_call;
     pthread_mutex_unlock(&_log_mutex);
     return EXIT_SUCCESS;
 }
@@ -1211,6 +1212,10 @@ bool starts_with_any(const char *str, const char *prefixes[], size_t num_prefixe
 
 // intercepted calls
 FILE *fopen64(const char *pathname, const char *mode) {
+    if (_in_wrapper_call) {
+        return actual_fopen64(pathname, mode);
+    }
+
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
     char **func_args = create_array_of_strings(2, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
@@ -1242,6 +1247,10 @@ FILE *fopen64(const char *pathname, const char *mode) {
 }
 
 FILE *fopen(const char *pathname, const char *mode) {
+    if (_in_wrapper_call) {
+        return actual_fopen(pathname, mode);
+    }
+
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
     char **func_args = create_array_of_strings(2, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
@@ -1273,6 +1282,10 @@ FILE *fopen(const char *pathname, const char *mode) {
 }
 
 FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
+    if (_in_wrapper_call) {
+        return actual_freopen(pathname, mode, stream);
+    }
+
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
     char **func_args = create_array_of_strings(3, MAX_STRING_LEN);
     snprintf(func_args[0], MAX_STRING_LEN-1, "%s", pathname);
@@ -1305,6 +1318,10 @@ FILE *freopen(const char *pathname, const char *mode, FILE *stream) {
 }
 
 FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
+    if (_in_wrapper_call) {
+        return actual_fopenat(dirfd, pathname, mode);
+    }
+
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
     int num_func_args = 3;
     char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
@@ -1339,6 +1356,18 @@ FILE *fopenat(int dirfd, const char *pathname, const char *mode) {
 }
 
 int open64(const char *pathname, int flags, ...) {
+    if (_in_wrapper_call) {
+        mode_t mode = 0;
+        if (flags & O_CREAT) {
+            va_list arg;
+            va_start(arg, flags);
+            mode = va_arg(arg, mode_t);
+            va_end(arg);
+            return actual_open64(pathname, flags, mode);
+        }
+        return actual_open64(pathname, flags);
+    }
+
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
 
     int num_func_args = (flags & O_CREAT ? 3 : 2);
@@ -1387,6 +1416,18 @@ int open64(const char *pathname, int flags, ...) {
 }
 
 int openat(int dirfd, const char *pathname, int flags, ...) {
+    if (_in_wrapper_call) {
+        mode_t mode = 0;
+        if (flags & O_CREAT) {
+            va_list arg;
+            va_start(arg, flags);
+            mode = va_arg(arg, mode_t);
+            va_end(arg);
+            return actual_openat(dirfd, pathname, flags, mode);
+        }
+        return actual_openat(dirfd, pathname, flags);
+    }
+
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
     int num_func_args = (flags & O_CREAT ? 4 : 3);
     char **func_args = create_array_of_strings(num_func_args, MAX_STRING_LEN);
@@ -1434,6 +1475,18 @@ int openat(int dirfd, const char *pathname, int flags, ...) {
 }
 
 int open(const char *pathname, int flags, ...) {
+    if (_in_wrapper_call) {
+        mode_t mode = 0;
+        if (flags & O_CREAT) {
+            va_list arg;
+            va_start(arg, flags);
+            mode = va_arg(arg, mode_t);
+            va_end(arg);
+            return actual_open(pathname, flags, mode);
+        }
+        return actual_open(pathname, flags);
+    }
+
     // print debug output to stderr
     debug(3, "'%s' called for '%s'\n", __func__, pathname);
 
