@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -86,7 +87,7 @@ class TestRun:
     """Tests for run()."""
 
     @pytest.fixture(autouse=True)
-    def active_eessi(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def active_eessi(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         monkeypatch.setenv("EESSI_EPREFIX", "/cvmfs/software.eessi.io/versions/2025.06/compat/linux/x86_64")
         with mock.patch("vdi_client.run.read_embedded_eessi_version", return_value="2025.06"):
             yield
