@@ -13,6 +13,7 @@ fi
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$REPO_ROOT"
+source "$REPO_ROOT/.github/scripts/lib/http-server.sh"
 
 echo "=== Build wrapper ==="
 make clean
@@ -21,6 +22,7 @@ make -C src/vdi_wrapper compile
 TEST_ROOT=$(mktemp -d)
 
 cleanup() {
+  stop_http_server
   rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
@@ -331,6 +333,235 @@ EOF
   fi
 }
 
+run_download_reentrancy_test() {
+  local test_dir="$TEST_ROOT/download-reentrancy"
+  local server_dir="$test_dir/http"
+  local port_file="$server_dir/port"
+  local reference_logs_dir="$test_dir/reference-logs"
+  local direct_logs_dir="$test_dir/direct-logs"
+  local open_logs_dir="$test_dir/open-logs"
+  local downloads_dir="$test_dir/downloads"
+  local openssl_config="$test_dir/openssl.cnf"
+
+  mkdir -p "$reference_logs_dir" "$direct_logs_dir" "$open_logs_dir" "$downloads_dir"
+  touch "$openssl_config"
+  start_http_server "$server_dir" "$port_file"
+  wait_for_http_server "$server_dir" "$port_file"
+
+  local port
+  port=$(cat "$port_file")
+  local url="http://127.0.0.1:$port/"
+
+  cat >"$test_dir/test.c" <<'EOF'
+#include <curl/curl.h>
+#include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+int main(int argc, char **argv) {
+    if (argc != 3) {
+        return 2;
+    }
+
+    if (strcmp(argv[1], "reference") == 0) {
+        CURLcode result = curl_global_init(CURL_GLOBAL_DEFAULT);
+        if (result != CURLE_OK) {
+            return 1;
+        }
+
+        CURL *curl = curl_easy_init();
+        if (curl == NULL) {
+            curl_global_cleanup();
+            return 1;
+        }
+
+        curl_easy_cleanup(curl);
+        curl_global_cleanup();
+        return 0;
+    }
+
+    if (strcmp(argv[1], "direct") == 0) {
+        int (*download)(const char *, char **) = dlsym(RTLD_DEFAULT, "download");
+        if (download == NULL) {
+            fprintf(stderr, "Error: download() is unavailable.\n");
+            return 2;
+        }
+
+        char *local_path = NULL;
+        if (download(argv[2], &local_path) != 0) {
+            fprintf(stderr, "Error: download() failed.\n");
+            return 1;
+        }
+
+        if (local_path == NULL || access(local_path, R_OK) != 0) {
+            fprintf(stderr, "Error: download() returned an unusable path.\n");
+            free(local_path);
+            return 1;
+        }
+        free(local_path);
+
+        if (fwrite("x", 1, 1, stderr) != 1) {
+            fprintf(stderr, "Error: application fwrite() failed.\n");
+            return 1;
+        }
+        return 0;
+    } else {
+        FILE *file = fopen(argv[2], "r");
+        if (file == NULL) {
+            fprintf(stderr, "Error: fopen() failed.\n");
+            return 1;
+        }
+
+        char body[16] = {0};
+        if (fread(body, 1, sizeof(body) - 1, file) != 15 ||
+            strcmp(body, "hello from vdi\n") != 0) {
+            fprintf(stderr, "Error: downloaded content mismatch.\n");
+            fclose(file);
+            return 1;
+        }
+
+        if (fclose(file) != 0) {
+            fprintf(stderr, "Error: fclose() failed.\n");
+            return 1;
+        }
+        return 0;
+    }
+}
+EOF
+
+  gcc -Wall -Wextra -Werror -g -O0 \
+    -o "$test_dir/test" \
+    "$test_dir/test.c" \
+    -lcurl \
+    -ldl
+
+  echo "=== Run curl/OpenSSL nested-call reference test ==="
+  if ! LD_PRELOAD="$PWD/src/vdi_wrapper/build/libvdi.so" \
+    VDI_LOG_DIR="$reference_logs_dir" \
+    VDI_LOG_FILE_PREFIX="download-reference." \
+    OPENSSL_CONF="$openssl_config" \
+    "$test_dir/test" reference "$url"; then
+    echo "Error: curl/OpenSSL nested-call reference test failed."
+    return 1
+  fi
+
+  local reference_log_file
+  reference_log_file=$(find "$reference_logs_dir" -type f -name '*.log' -print -quit)
+  if [ -z "$reference_log_file" ]; then
+    echo "Error: curl/OpenSSL nested-call reference test log file was not created."
+    return 1
+  fi
+
+  local reference_open_count
+  reference_open_count=$(awk -v config="$openssl_config" '
+    ($13 == "fopen" || $13 == "fopen64" || $13 == "freopen" ||
+     $13 == "open" || $13 == "open64") && $14 == config { count++ }
+    $13 == "fopenat" && $15 == config { count++ }
+    END { print count + 0 }
+  ' "$reference_log_file")
+  if [ "$reference_open_count" -lt 1 ]; then
+    echo "Error: curl/OpenSSL reference test did not produce a nested open-family log entry."
+    return 1
+  fi
+
+  echo "=== Run direct download reentrancy test ==="
+  if ! LD_PRELOAD="$PWD/src/vdi_wrapper/build/libvdi.so" \
+    VDI_DOWNLOAD_BASE="$downloads_dir" \
+    VDI_LOG_DIR="$direct_logs_dir" \
+    VDI_LOG_FILE_PREFIX="download-direct." \
+    OPENSSL_CONF="$openssl_config" \
+    "$test_dir/test" direct "$url"; then
+    echo "Error: direct download reentrancy test failed."
+    return 1
+  fi
+
+  local direct_log_file
+  direct_log_file=$(find "$direct_logs_dir" -type f -name '*.log' -print -quit)
+  if [ -z "$direct_log_file" ]; then
+    echo "Error: direct download guard-restoration test log file was not created."
+    return 1
+  fi
+
+  local direct_log_line_count
+  direct_log_line_count=$(wc -l <"$direct_log_file" | tr -d ' ')
+  if [ "$direct_log_line_count" -ne 1 ]; then
+    echo "Error: direct download created $direct_log_line_count log entries; expected 1."
+    return 1
+  fi
+
+  local direct_fwrite_count
+  direct_fwrite_count=$(awk '$13 == "fwrite" && $14 == 1 && $15 == 1 { count++ } END { print count + 0 }' "$direct_log_file")
+  if [ "$direct_fwrite_count" -ne 1 ]; then
+    echo "Error: found $direct_fwrite_count application fwrite log entries; expected 1."
+    return 1
+  fi
+
+  local direct_internal_open_count
+  direct_internal_open_count=$(awk -v config="$openssl_config" '
+    ($13 == "fopen" || $13 == "fopen64" || $13 == "freopen" ||
+     $13 == "open" || $13 == "open64") && $14 == config { count++ }
+    $13 == "fopenat" && $15 == config { count++ }
+    END { print count + 0 }
+  ' "$direct_log_file")
+  if [ "$direct_internal_open_count" -ne 0 ]; then
+    echo "Error: found $direct_internal_open_count internal open-family log entries; expected 0."
+    return 1
+  fi
+
+  echo "=== Run open-family download reentrancy test ==="
+  if ! LD_PRELOAD="$PWD/src/vdi_wrapper/build/libvdi.so" \
+    VDI_DOWNLOAD_BASE="$downloads_dir" \
+    VDI_LOG_DIR="$open_logs_dir" \
+    VDI_LOG_FILE_PREFIX="download-open." \
+    OPENSSL_CONF="$openssl_config" \
+    "$test_dir/test" open "$url"; then
+    echo "Error: open-family download reentrancy test failed."
+    return 1
+  fi
+
+  local open_log_file
+  open_log_file=$(find "$open_logs_dir" -type f -name '*.log' -print -quit)
+  if [ -z "$open_log_file" ]; then
+    echo "Error: open-family download reentrancy test log file was not created."
+    return 1
+  fi
+
+  local open_log_line_count
+  open_log_line_count=$(wc -l <"$open_log_file" | tr -d ' ')
+  if [ "$open_log_line_count" -ne 2 ]; then
+    echo "Error: open-family download created $open_log_line_count log entries; expected 2."
+    return 1
+  fi
+
+  local fopen_count
+  fopen_count=$(awk -v url="$url" '$13 == "fopen" && $14 == url { count++ } END { print count + 0 }' "$open_log_file")
+  if [ "$fopen_count" -ne 1 ]; then
+    echo "Error: found $fopen_count fopen log entries; expected 1."
+    return 1
+  fi
+
+  local application_fclose_count
+  application_fclose_count=$(awk '$13 == "fclose" { count++ } END { print count + 0 }' "$open_log_file")
+  if [ "$application_fclose_count" -ne 1 ]; then
+    echo "Error: found $application_fclose_count application fclose log entries; expected 1."
+    return 1
+  fi
+
+  local internal_io_count
+  internal_io_count=$(awk '
+    $13 == "fwrite" || $13 == "write" { count++ }
+    END { print count + 0 }
+  ' "$open_log_file")
+  if [ "$internal_io_count" -ne 0 ]; then
+    echo "Error: found $internal_io_count internal I/O log entries; expected 0."
+    return 1
+  fi
+
+  stop_http_server
+}
+
 run_write_close_interception_test() {
   local test_dir="$TEST_ROOT/write-close-interception"
   local default_logs_dir="$test_dir/default-logs"
@@ -527,6 +758,7 @@ EOF
 run_process_start_time_parsing_test
 run_open64_variadic_signature_test
 run_download_error_reporting_test
+run_download_reentrancy_test
 run_write_close_interception_test
 
 echo "libvdi wrapper functional tests passed."
