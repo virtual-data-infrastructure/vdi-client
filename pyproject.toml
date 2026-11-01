@@ -64,8 +64,8 @@ vdi = "vdi_client.cli:main"
 
 
 [project.urls]
-Homepage = "https://github.com/virtual-data-infrastructure/vdi-client"
-Documentation = "https://github.com/virtual-data-infrastructure/vdi-client"
+Homepage = "https://virtual-data-infrastructure.github.io/vdi-docs/"
+Documentation = "https://virtual-data-infrastructure.github.io/vdi-docs/"
 Repository = "https://github.com/virtual-data-infrastructure/vdi-client"
 Issues = "https://github.com/virtual-data-infrastructure/vdi-client/issues"
 
